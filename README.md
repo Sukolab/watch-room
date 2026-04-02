@@ -1,18 +1,15 @@
-# Watch Room for iPad
+# Watch Room v2
 
-Use this instead of Google Meet when you mainly need:
-- screen sharing from PC/laptop
-- viewing on iPad Safari
-- optional mic audio
-- participant count
+Changes:
+- host-only screen share
+- mic required on join
+- optional camera for non-iPad devices
+- removed video controls bar on shared screen
 
-## Run locally
+## Run
 npm install
 npm start
 
-## Render deploy
-Build command:
-npm install
-
-Start command:
-node server.js
+## Render
+Build command: npm install
+Start command: node server.js

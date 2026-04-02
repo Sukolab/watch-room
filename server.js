@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
@@ -9,43 +10,105 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => res.sendFile(__dirname + '/index.html'));
 
-const rooms = new Map(); // roomId -> [{id, role}]
-function getRoomMembers(roomId){ return rooms.get(roomId) || []; }
-function emitPeerCount(roomId){
-  const members = getRoomMembers(roomId);
-  members.forEach((m) => io.to(m.id).emit('peer-count', { count: members.length }));
+const rooms = new Map();
+
+function sanitizeRoomId(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
 }
-function hostExists(members){ return members.some((m) => m.role === 'host'); }
+
+function getRoom(roomId) {
+  return rooms.get(roomId) || null;
+}
+
+function ensureRoom(roomId, password = '') {
+  let room = getRoom(roomId);
+  if (!room) {
+    room = { roomId, password: String(password || ''), members: [], createdAt: Date.now() };
+    rooms.set(roomId, room);
+  }
+  return room;
+}
+
+function publicRooms() {
+  return Array.from(rooms.values())
+    .filter((room) => room.members.length > 0)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, 20)
+    .map((room) => ({
+      roomId: room.roomId,
+      count: room.members.length,
+      locked: !!room.password,
+      hasHost: room.members.some((m) => m.role === 'host'),
+    }));
+}
+
+function emitRoomList() {
+  io.emit('room-list', { rooms: publicRooms() });
+}
+
+function emitPeerCount(roomId) {
+  const room = getRoom(roomId);
+  if (!room) return;
+  room.members.forEach((m) => io.to(m.id).emit('peer-count', { count: room.members.length }));
+}
+
+function hostExists(room) {
+  return room.members.some((m) => m.role === 'host');
+}
 
 io.on('connection', (socket) => {
-  socket.on('join-room', ({ roomId, displayName, requestedRole }) => {
-    roomId = String(roomId || '').trim();
+  socket.emit('room-list', { rooms: publicRooms() });
+
+  socket.on('get-room-list', () => {
+    socket.emit('room-list', { rooms: publicRooms() });
+  });
+
+  socket.on('join-room', ({ roomId, displayName, requestedRole, password }) => {
+    roomId = sanitizeRoomId(roomId);
     displayName = String(displayName || 'Guest').trim() || 'Guest';
     requestedRole = requestedRole === 'host' ? 'host' : 'viewer';
+    password = String(password || '');
 
     if (!roomId) return socket.emit('room-error', 'Missing room code.');
-    const members = getRoomMembers(roomId);
-    if (members.length >= 2) return socket.emit('room-full');
+
+    let room = getRoom(roomId);
+    const isCreating = !room;
+    if (!room) room = ensureRoom(roomId, password);
+
+    if (room.members.length >= 8) return socket.emit('room-full');
+    if (room.password && room.password !== password) return socket.emit('room-error', 'Wrong room password.');
+    if (!room.password && isCreating && password) room.password = password;
 
     let role = requestedRole;
-    if (role === 'host' && hostExists(members)) role = 'viewer';
+    if (role === 'host' && hostExists(room)) role = 'viewer';
 
     socket.data.roomId = roomId;
     socket.data.displayName = displayName;
     socket.data.role = role;
 
-    members.push({ id: socket.id, role });
-    rooms.set(roomId, members);
+    room.members.push({ id: socket.id, role, displayName });
     socket.join(roomId);
 
-    const peers = members.filter((m) => m.id !== socket.id).map((m) => m.id);
-    socket.emit('joined-room', { roomId, peers, count: members.length, isHost: role === 'host' });
+    const peers = room.members.filter((m) => m.id !== socket.id).map((m) => ({ id: m.id, role: m.role }));
+    socket.emit('joined-room', {
+      roomId,
+      peers,
+      count: room.members.length,
+      isHost: role === 'host',
+      locked: !!room.password,
+    });
 
-    peers.forEach((peerId) => {
-      io.to(peerId).emit('peer-joined', { socketId: socket.id, displayName, count: members.length });
+    peers.forEach((peer) => {
+      io.to(peer.id).emit('peer-joined', {
+        socketId: socket.id,
+        displayName,
+        role,
+        count: room.members.length,
+      });
     });
 
     emitPeerCount(roomId);
+    emitRoomList();
   });
 
   socket.on('signal', ({ to, data }) => {
@@ -53,19 +116,34 @@ io.on('connection', (socket) => {
     io.to(to).emit('signal', { from: socket.id, data });
   });
 
-  socket.on('disconnect', () => {
-    const roomId = socket.data.roomId;
-    if (!roomId) return;
-    const members = getRoomMembers(roomId);
-    const nextMembers = members.filter((m) => m.id !== socket.id);
+  socket.on('media-state', ({ roomId, screenActive, camActive }) => {
+    roomId = sanitizeRoomId(roomId);
+    const room = getRoom(roomId);
+    if (!room) return;
+    socket.to(roomId).emit('media-state', {
+      from: socket.id,
+      screenActive: !!screenActive,
+      camActive: !!camActive,
+    });
+  });
 
-    if (nextMembers.length === 0) rooms.delete(roomId);
-    else {
-      rooms.set(roomId, nextMembers);
-      nextMembers.forEach((m) => io.to(m.id).emit('peer-left', { count: nextMembers.length }));
+  socket.on('disconnect', () => {
+    const roomId = sanitizeRoomId(socket.data.roomId);
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!room) return;
+
+    room.members = room.members.filter((m) => m.id !== socket.id);
+
+    if (room.members.length === 0) {
+      rooms.delete(roomId);
+    } else {
+      room.members.forEach((m) => io.to(m.id).emit('peer-left', { count: room.members.length }));
       emitPeerCount(roomId);
     }
+
+    emitRoomList();
   });
 });
 
-server.listen(PORT, () => console.log('Watch Room v2 running on port ' + PORT));
+server.listen(PORT, () => console.log('Watch Room v3 running on port ' + PORT));
