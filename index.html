@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Watch Room</title>
+  <style>
+    :root{--bg:#0a1020;--bg2:#121a35;--card:rgba(18,24,45,.88);--line:rgba(255,255,255,.08);--text:#eef3ff;--muted:#9eabc8;--accent:#7c9cff;--accent2:#5ce1e6;--good:#1e5c45;--danger:#6d2c37;--shadow:0 20px 60px rgba(0,0,0,.35);--radius:24px}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;min-height:100%;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:radial-gradient(circle at top left,rgba(124,156,255,.18),transparent 28%),radial-gradient(circle at bottom right,rgba(92,225,230,.12),transparent 26%),linear-gradient(180deg,var(--bg),var(--bg2))}
+    .shell{max-width:1180px;margin:0 auto;padding:18px}.hero{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}.brand{display:flex;align-items:center;gap:14px}
+    .logo{width:52px;height:52px;border-radius:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;box-shadow:0 12px 32px rgba(124,156,255,.35);font-weight:800;color:#fff;font-size:20px}
+    .title h1{margin:0;font-size:30px;line-height:1.05}.title p{margin:6px 0 0;color:var(--muted);font-size:14px}.pill{border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:999px;padding:8px 12px;color:var(--muted);font-size:12px;white-space:nowrap}
+    .layout{display:grid;grid-template-columns:360px 1fr;gap:18px}.panel,.stage{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:blur(10px)}.panel,.stage{padding:18px}
+    .section-title{font-size:13px;color:#cad5f3;margin:0 0 10px;letter-spacing:.03em;text-transform:uppercase}.label{display:block;margin:12px 0 6px;color:#c7d3f1;font-size:13px}
+    .input{width:100%;border-radius:16px;border:1px solid var(--line);background:rgba(7,11,25,.7);color:var(--text);padding:14px 15px;font-size:16px;outline:none}.input:focus{border-color:rgba(124,156,255,.6);box-shadow:0 0 0 4px rgba(124,156,255,.12)}.input:disabled{opacity:.65}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+    button{border:none;border-radius:16px;padding:13px 14px;font-size:15px;font-weight:700;cursor:pointer;color:white;background:#2a355f}.primary{background:linear-gradient(135deg,var(--accent),#6686ff)}.secondary{background:#25304f}.success{background:var(--good)}.danger{background:var(--danger)}button:disabled{opacity:.55;cursor:not-allowed}.full{grid-column:1/-1}
+    .status{margin-top:14px;padding:12px 13px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:16px;min-height:54px;color:#dbe6ff;font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+    .mini-grid{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}.mini-card{border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:18px;padding:12px}.mini-label{font-size:12px;color:var(--muted)}.mini-value{margin-top:4px;font-size:16px;font-weight:700}
+    .tips{margin-top:14px;padding:14px;border-radius:18px;background:rgba(124,156,255,.08);border:1px solid rgba(124,156,255,.16);color:#d3defd;font-size:13px;line-height:1.5}
+    .screen-wrap{border:1px solid var(--line);background:rgba(4,8,20,.58);border-radius:22px;overflow:hidden}.screen-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;color:#d7e3ff}.badge{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.04)}
+    #remoteVideo{width:100%;height:560px;display:block;background:#010206;object-fit:contain}.toolbar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.foot{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
+    @media (max-width:900px){.layout{grid-template-columns:1fr}#remoteVideo{height:280px}.toolbar{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <div class="brand"><div class="logo">WR</div><div class="title"><h1>Watch Room</h1><p>Simple 2-person room for screen sharing, movie watching, and optional voice chat.</p></div></div>
+      <div class="pill">Best on iPad: Safari + HTTPS + receive-only viewing</div>
+    </div>
+    <div class="layout">
+      <div class="panel">
+        <p class="section-title">Room setup</p>
+        <label class="label" for="nameInput">Your name</label>
+        <input class="input" id="nameInput" maxlength="32" placeholder="Your name" value="Massim" />
+        <label class="label" for="roomInput">Room code</label>
+        <input class="input" id="roomInput" maxlength="64" placeholder="example: movie-night-room" />
+        <div class="actions">
+          <button class="secondary" id="generateRoomBtn">Generate</button>
+          <button class="secondary" id="copyRoomBtn">Copy</button>
+          <button class="primary full" id="joinBtn">Join room</button>
+        </div>
+        <div class="mini-grid">
+          <div class="mini-card"><div class="mini-label">People in room</div><div class="mini-value" id="countValue">0</div></div>
+          <div class="mini-card"><div class="mini-label">Role</div><div class="mini-value" id="roleValue">Viewer</div></div>
+        </div>
+        <div class="status" id="status">Not connected.</div>
+        <div class="tips"><strong>Best setup for your iPad:</strong><br>1. Your girlfriend joins on PC/laptop and clicks <strong>Start screen share</strong>.<br>2. You join on iPad Safari as the viewer.<br>3. Camera is not needed.<br>4. Mic is optional on both sides.</div>
+      </div>
+      <div class="stage">
+        <div class="screen-wrap">
+          <div class="screen-head"><span>Shared screen</span><span class="badge" id="remoteState">Waiting</span></div>
+          <video id="remoteVideo" autoplay playsinline controls></video>
+        </div>
+        <div class="toolbar">
+          <button class="success" id="shareBtn" disabled>Start screen share</button>
+          <button class="success" id="micBtn" disabled>Enable mic</button>
+          <button class="secondary" id="muteRemoteBtn">Mute player</button>
+          <button class="danger" id="leaveBtn" disabled>Leave room</button>
+        </div>
+        <div class="foot">This room is not Google Meet. It is a separate lightweight room made for easier viewing on your iPad.</div>
+      </div>
+    </div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    (function(){
+      var socket=null,peer=null,remoteSocketId=null,inRoom=false,isOfferer=false,localAudioStream=null,screenStream=null,remoteStream=null,isMicOn=false,isSharing=false;
+      var els={nameInput:document.getElementById('nameInput'),roomInput:document.getElementById('roomInput'),generateRoomBtn:document.getElementById('generateRoomBtn'),copyRoomBtn:document.getElementById('copyRoomBtn'),joinBtn:document.getElementById('joinBtn'),shareBtn:document.getElementById('shareBtn'),micBtn:document.getElementById('micBtn'),muteRemoteBtn:document.getElementById('muteRemoteBtn'),leaveBtn:document.getElementById('leaveBtn'),remoteVideo:document.getElementById('remoteVideo'),status:document.getElementById('status'),remoteState:document.getElementById('remoteState'),countValue:document.getElementById('countValue'),roleValue:document.getElementById('roleValue')};
+      function setStatus(t){els.status.textContent=t} function setRole(t){els.roleValue.textContent=t} function setCount(n){els.countValue.textContent=String(n)}
+      function generateRoomCode(){return 'room-'+Math.random().toString(36).slice(2,8)+'-'+Math.random().toString(36).slice(2,6)}
+      function updateUiState(){els.joinBtn.disabled=inRoom;els.leaveBtn.disabled=!inRoom;els.generateRoomBtn.disabled=inRoom;els.roomInput.disabled=inRoom;els.shareBtn.disabled=!inRoom;els.micBtn.disabled=!inRoom;els.shareBtn.textContent=isSharing?'Stop screen share':'Start screen share';els.micBtn.textContent=isMicOn?'Disable mic':'Enable mic'}
+      function stopTracks(stream){if(!stream)return;stream.getTracks().forEach(function(track){track.stop()})}
+      function ensurePeer(){
+        if(peer)return peer;
+        peer=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
+        remoteStream=new MediaStream(); els.remoteVideo.srcObject=remoteStream; els.remoteVideo.setAttribute('playsinline','true');
+        peer.onicecandidate=function(event){if(event.candidate&&remoteSocketId&&socket){socket.emit('signal',{to:remoteSocketId,data:{type:'candidate',candidate:event.candidate}})}};
+        peer.ontrack=function(event){remoteStream.addTrack(event.track);els.remoteState.textContent='Receiving';els.remoteVideo.play().catch(function(){})};
+        peer.onconnectionstatechange=function(){var state=peer.connectionState||'unknown'; if(state==='connected'){els.remoteState.textContent='Connected';setStatus('Connected.')} else if(state==='failed'||state==='disconnected'){els.remoteState.textContent='Issue';setStatus('Connection issue. Try leaving and joining again.')} else if(state==='closed'){els.remoteState.textContent='Closed'}};
+        addExistingLocalTracks(); return peer;
+      }
+      function addExistingLocalTracks(){
+        if(!peer)return;
+        var senders=peer.getSenders?peer.getSenders():[];
+        function hasKind(kind){return senders.some(function(sender){return sender.track&&sender.track.kind===kind})}
+        if(screenStream){screenStream.getTracks().forEach(function(track){if(!hasKind(track.kind))peer.addTrack(track,screenStream)})}
+        if(localAudioStream){localAudioStream.getTracks().forEach(function(track){if(!hasKind(track.kind))peer.addTrack(track,localAudioStream)})}
+      }
+      async function renegotiate(){
+        try{if(!peer||!remoteSocketId)return; var offer=await peer.createOffer({offerToReceiveAudio:true,offerToReceiveVideo:true}); await peer.setLocalDescription(offer); socket.emit('signal',{to:remoteSocketId,data:{type:'offer',offer:offer}}); setStatus('Updating stream...')}
+        catch(err){setStatus('Offer error: '+((err&&err.message)?err.message:String(err)))}
+      }
+      async function startScreenShare(){
+        try{
+          if(!navigator.mediaDevices||!navigator.mediaDevices.getDisplayMedia){setStatus('Screen share is not supported in this browser.');return}
+          screenStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+          isSharing=true; setRole('Sharer'); updateUiState();
+          var videoTrack=screenStream.getVideoTracks()[0]; if(videoTrack){videoTrack.onended=function(){stopScreenShare()}}
+          ensurePeer(); addExistingLocalTracks(); if(remoteSocketId) await renegotiate(); setStatus('Screen sharing started.');
+        }catch(err){setStatus('Screen share failed: '+((err&&err.message)?err.message:String(err)))}
+      }
+      async function stopScreenShare(){
+        stopTracks(screenStream); screenStream=null; isSharing=false; if(!isMicOn)setRole('Viewer'); updateUiState();
+        if(peer){peer.getSenders().forEach(function(sender){if(sender.track&&sender.track.kind==='video'){try{peer.removeTrack(sender)}catch(e){}}}); if(remoteSocketId) await renegotiate()}
+        setStatus('Screen sharing stopped.');
+      }
+      async function toggleScreenShare(){if(!inRoom)return; if(isSharing) await stopScreenShare(); else await startScreenShare()}
+      async function enableMic(){
+        try{
+          if(isMicOn){
+            stopTracks(localAudioStream); localAudioStream=null; isMicOn=false; if(!isSharing)setRole('Viewer');
+            if(peer){peer.getSenders().forEach(function(sender){if(sender.track&&sender.track.kind==='audio'){try{peer.removeTrack(sender)}catch(e){}}}); if(remoteSocketId) await renegotiate()}
+            updateUiState(); setStatus('Microphone disabled.'); return;
+          }
+          var constraints={audio:true,video:false};
+          if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia) localAudioStream=await navigator.mediaDevices.getUserMedia(constraints);
+          else { var legacy=navigator.getUserMedia||navigator.webkitGetUserMedia||navigator.mozGetUserMedia||navigator.msGetUserMedia; if(!legacy) throw new Error('Microphone not supported'); localAudioStream=await new Promise(function(resolve,reject){legacy.call(navigator,constraints,resolve,reject)}) }
+          isMicOn=true; if(!isSharing)setRole('Voice'); ensurePeer(); addExistingLocalTracks(); if(remoteSocketId) await renegotiate(); updateUiState(); setStatus('Microphone enabled.');
+        }catch(err){setStatus('Mic failed: '+((err&&err.message)?err.message:String(err)))}
+      }
+      function resetAll(){ if(peer){try{peer.close()}catch(e){} peer=null} if(socket){try{socket.disconnect()}catch(e){} socket=null} stopTracks(localAudioStream); stopTracks(screenStream); localAudioStream=null; screenStream=null; remoteStream=null; remoteSocketId=null; inRoom=false; isOfferer=false; isMicOn=false; isSharing=false; setRole('Viewer'); setCount(0); els.remoteVideo.srcObject=null; els.remoteState.textContent='Waiting'; updateUiState(); }
+      function ensureSocket(){
+        if(socket)return true;
+        if(typeof io==='undefined'){setStatus('Socket.IO failed to load. Deploy this on a Node host like Render.'); return false}
+        socket=io({transports:['websocket','polling']});
+        socket.on('connect',function(){setStatus('Connected to server. Ready to join room.')});
+        socket.on('connect_error',function(err){setStatus('Server connection failed: '+((err&&err.message)?err.message:String(err)))});
+        socket.on('joined-room',function(payload){isOfferer=!(payload.peers&&payload.peers.length>0); setCount(payload.count||1); setStatus('Joined room: '+payload.roomId+'. '+(isOfferer?'Waiting for partner...':'Partner found.')); if(payload.peers&&payload.peers.length>0){remoteSocketId=payload.peers[0]; ensurePeer()}});
+        socket.on('peer-joined',async function(payload){remoteSocketId=payload.socketId; setCount(payload.count||2); els.remoteState.textContent='Joining'; setStatus((payload.displayName||'Partner')+' joined.'); ensurePeer(); if(isOfferer) await renegotiate()});
+        socket.on('peer-count',function(payload){setCount(payload.count||0)});
+        socket.on('signal',async function(message){
+          try{
+            remoteSocketId=message.from; var data=message.data||{}; var pc=ensurePeer();
+            if(data.type==='offer'&&data.offer){await pc.setRemoteDescription(new RTCSessionDescription(data.offer)); var answer=await pc.createAnswer(); await pc.setLocalDescription(answer); socket.emit('signal',{to:remoteSocketId,data:{type:'answer',answer:answer}}); els.remoteState.textContent='Connecting'; setStatus('Incoming stream accepted.')}
+            else if(data.type==='answer'&&data.answer){if(pc.signalingState==='have-local-offer'){await pc.setRemoteDescription(new RTCSessionDescription(data.answer)); els.remoteState.textContent='Connecting'; setStatus('Partner answered. Connecting...')}}
+            else if(data.type==='candidate'&&data.candidate){try{await pc.addIceCandidate(new RTCIceCandidate(data.candidate))}catch(err){setStatus('ICE error: '+((err&&err.message)?err.message:String(err)))}}}
+          catch(err){setStatus('Signal error: '+((err&&err.message)?err.message:String(err)))}
+        });
+        socket.on('peer-left',function(payload){setCount(payload&&payload.count?payload.count:1); els.remoteState.textContent='Waiting'; els.remoteVideo.srcObject=null; remoteStream=null; remoteSocketId=null; if(peer){try{peer.close()}catch(e){} peer=null} setStatus('Partner left the room.')});
+        socket.on('room-full',function(){setStatus('Room is full. Only 2 users are allowed.'); inRoom=false; updateUiState()});
+        socket.on('room-error',function(message){setStatus(message||'Room error.')});
+        return true;
+      }
+      async function joinRoom(){if(inRoom)return; var roomId=els.roomInput.value.trim(); var displayName=els.nameInput.value.trim()||'Guest'; if(!roomId){setStatus('Enter a room code first.');return} if(!ensureSocket())return; inRoom=true; updateUiState(); socket.emit('join-room',{roomId:roomId,displayName:displayName})}
+      function leaveRoom(){resetAll(); setStatus('Left room.')}
+      function copyRoom(){var text=els.roomInput.value.trim(); if(!text){setStatus('Nothing to copy yet.');return} if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){setStatus('Room code copied.')}).catch(function(){fallbackCopy(text)})} else fallbackCopy(text)}
+      function fallbackCopy(text){var temp=document.createElement('textarea'); temp.value=text; document.body.appendChild(temp); temp.select(); try{document.execCommand('copy'); setStatus('Room code copied.')}catch(_e){setStatus('Copy failed. Please copy the room code manually.')} document.body.removeChild(temp)}
+      function toggleRemoteMute(){els.remoteVideo.muted=!els.remoteVideo.muted; els.muteRemoteBtn.textContent=els.remoteVideo.muted?'Unmute player':'Mute player'}
+      els.generateRoomBtn.addEventListener('click',function(){if(inRoom)return; els.roomInput.value=generateRoomCode(); setStatus('Room code generated.')});
+      els.copyRoomBtn.addEventListener('click',copyRoom); els.joinBtn.addEventListener('click',joinRoom); els.shareBtn.addEventListener('click',toggleScreenShare); els.micBtn.addEventListener('click',enableMic); els.leaveBtn.addEventListener('click',leaveRoom); els.muteRemoteBtn.addEventListener('click',toggleRemoteMute);
+      if(location.hash&&location.hash.length>1) els.roomInput.value=decodeURIComponent(location.hash.slice(1)); else els.roomInput.value=generateRoomCode();
+      els.remoteVideo.muted=false; updateUiState();
+    })();
+  </script>
+</body>
+</html>
