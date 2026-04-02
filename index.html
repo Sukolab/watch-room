@@ -7,15 +7,32 @@
   <style>
     :root{--bg:#0a1020;--bg2:#121a35;--card:rgba(18,24,45,.88);--line:rgba(255,255,255,.08);--text:#eef3ff;--muted:#9eabc8;--accent:#7c9cff;--accent2:#5ce1e6;--good:#1e5c45;--danger:#6d2c37;--warn:#6b5521;--shadow:0 20px 60px rgba(0,0,0,.35);--radius:24px}
     *{box-sizing:border-box} html,body{margin:0;padding:0;min-height:100%;color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:radial-gradient(circle at top left,rgba(124,156,255,.18),transparent 28%),radial-gradient(circle at bottom right,rgba(92,225,230,.12),transparent 26%),linear-gradient(180deg,var(--bg),var(--bg2))}
-    .shell{max-width:1280px;margin:0 auto;padding:18px}.hero{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}.brand{display:flex;align-items:center;gap:14px}.logo{width:52px;height:52px;border-radius:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;box-shadow:0 12px 32px rgba(124,156,255,.35);font-weight:800;color:#fff;font-size:20px}.title h1{margin:0;font-size:30px;line-height:1.05}.title p{margin:6px 0 0;color:var(--muted);font-size:14px}.pill{border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:999px;padding:8px 12px;color:var(--muted);font-size:12px;white-space:nowrap}
+    .shell{max-width:1320px;margin:0 auto;padding:18px}.hero{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}.brand{display:flex;align-items:center;gap:14px}.logo{width:52px;height:52px;border-radius:18px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;box-shadow:0 12px 32px rgba(124,156,255,.35);font-weight:800;color:#fff;font-size:20px}.title h1{margin:0;font-size:30px;line-height:1.05}.title p{margin:6px 0 0;color:var(--muted);font-size:14px}.pill{border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:999px;padding:8px 12px;color:var(--muted);font-size:12px;white-space:nowrap}
     .layout{display:grid;grid-template-columns:390px 1fr;gap:18px}.panel,.stage{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);backdrop-filter:blur(10px);padding:18px}.section-title{font-size:13px;color:#cad5f3;margin:0 0 10px;letter-spacing:.03em;text-transform:uppercase}.label{display:block;margin:12px 0 6px;color:#c7d3f1;font-size:13px}
     .input,.select{width:100%;border-radius:16px;border:1px solid var(--line);background:rgba(7,11,25,.7);color:var(--text);padding:14px 15px;font-size:16px;outline:none}.input:focus,.select:focus{border-color:rgba(124,156,255,.6);box-shadow:0 0 0 4px rgba(124,156,255,.12)}.input:disabled,.select:disabled{opacity:.65}
     .actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px} button{border:none;border-radius:16px;padding:13px 14px;font-size:15px;font-weight:700;cursor:pointer;color:white;background:#2a355f}.primary{background:linear-gradient(135deg,var(--accent),#6686ff)}.secondary{background:#25304f}.success{background:var(--good)}.danger{background:var(--danger)}.warning{background:var(--warn)} button:disabled{opacity:.55;cursor:not-allowed}.full{grid-column:1/-1}
     .status{margin-top:14px;padding:12px 13px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:16px;min-height:54px;color:#dbe6ff;font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word}.mini-grid{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}.mini-card{border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:18px;padding:12px}.mini-label{font-size:12px;color:var(--muted)}.mini-value{margin-top:4px;font-size:16px;font-weight:700}.tips{margin-top:14px;padding:14px;border-radius:18px;background:rgba(124,156,255,.08);border:1px solid rgba(124,156,255,.16);color:#d3defd;font-size:13px;line-height:1.5}
     .room-list{margin-top:14px;border:1px solid var(--line);border-radius:18px;padding:12px;background:rgba(255,255,255,.03)} .room-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border-radius:14px;background:rgba(8,12,24,.4);margin-top:8px}.room-meta{font-size:12px;color:var(--muted)} .room-code{font-size:15px;font-weight:700;letter-spacing:.08em}
-    .video-grid{display:grid;grid-template-columns:1fr 300px;gap:16px}.screen-wrap,.cam-wrap{border:1px solid var(--line);background:rgba(4,8,20,.58);border-radius:22px;overflow:hidden}.screen-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;color:#d7e3ff}.badge{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.04)}
-    #remoteVideo{width:100%;height:560px;display:block;background:#010206;object-fit:contain} #camVideo{width:100%;height:280px;display:block;background:#010206;object-fit:cover}.toolbar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.foot{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
-    @media (max-width:980px){.layout{grid-template-columns:1fr}.video-grid{grid-template-columns:1fr}#remoteVideo{height:280px}.toolbar{grid-template-columns:1fr 1fr}}
+    .video-grid{display:grid;grid-template-columns:1fr 320px;gap:16px}
+    .screen-wrap,.cam-wrap{border:1px solid var(--line);background:rgba(4,8,20,.58);border-radius:22px;overflow:hidden}
+    .screen-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;color:#d7e3ff}
+    .screen-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .badge{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.04)}
+    .media-stage{position:relative;background:#010206}
+    #remoteVideo{width:100%;height:560px;display:block;background:#010206;object-fit:contain}
+    .avatar-fallback{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;background:radial-gradient(circle at top,rgba(124,156,255,.22),transparent 34%),linear-gradient(180deg,#101834,#090d1b)}
+    .avatar-badge{width:112px;height:112px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:40px;letter-spacing:.04em;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 18px 50px rgba(124,156,255,.28)}
+    .avatar-name{font-size:16px;font-weight:700;color:#ecf3ff}.avatar-sub{font-size:13px;color:var(--muted)}
+    .cam-stack{position:relative;background:#010206}
+    #camVideo{width:100%;height:280px;display:block;background:#010206;object-fit:cover}
+    .floating-cam{position:absolute;right:16px;bottom:16px;width:26%;min-width:118px;max-width:220px;border-radius:18px;overflow:hidden;border:1px solid rgba(255,255,255,.12);box-shadow:0 20px 40px rgba(0,0,0,.45);background:#04070f;z-index:3}
+    .floating-cam #camVideo{height:100%;min-height:140px;max-height:190px}
+    .floating-cam .screen-head{padding:9px 11px;font-size:12px}
+    .toolbar{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:14px}.foot{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
+    .viewer-mode .stage{padding:12px}.viewer-mode .video-grid{grid-template-columns:1fr}.viewer-mode .screen-wrap{position:relative}.viewer-mode .cam-wrap{display:none}.viewer-mode .toolbar{grid-template-columns:1fr 1fr}.viewer-mode .panel{display:none}.viewer-mode #remoteVideo{height:calc(100vh - 150px);min-height:300px}.viewer-mode .floating-cam{display:block}
+    .fullscreen-mode .shell{max-width:none;padding:0}.fullscreen-mode .hero,.fullscreen-mode .panel,.fullscreen-mode .foot{display:none}.fullscreen-mode .layout{grid-template-columns:1fr;gap:0}.fullscreen-mode .stage{border-radius:0;min-height:100vh;padding:0;background:#000;border:none}.fullscreen-mode .video-grid{grid-template-columns:1fr;gap:0}.fullscreen-mode .screen-wrap{border-radius:0;border:none;min-height:100vh}.fullscreen-mode .screen-head{position:absolute;left:0;right:0;top:0;z-index:5;background:linear-gradient(180deg,rgba(0,0,0,.72),rgba(0,0,0,.18));border-bottom:none}.fullscreen-mode #remoteVideo{height:100vh;object-fit:contain}.fullscreen-mode .toolbar{position:absolute;left:12px;right:12px;bottom:12px;z-index:6;background:rgba(4,8,20,.56);backdrop-filter:blur(10px);padding:10px;border-radius:18px;grid-template-columns:repeat(5,1fr)}
+    @media (max-width:980px){.layout{grid-template-columns:1fr}.video-grid{grid-template-columns:1fr}.toolbar{grid-template-columns:1fr 1fr}.panel{order:2}.stage{order:1}#remoteVideo{height:320px}.floating-cam{width:34%;min-width:108px}}
+    @media (max-width:700px){.shell{padding:12px}.title h1{font-size:24px}.hero{margin-bottom:12px}.stage,.panel{padding:14px;border-radius:20px}.screen-head{padding:10px 12px;font-size:13px}.screen-head-actions{gap:6px}.badge{padding:5px 8px;font-size:11px}.toolbar{grid-template-columns:1fr 1fr}.toolbar button{padding:12px 10px;font-size:14px}#remoteVideo{height:255px}.viewer-mode #remoteVideo{height:calc(100vh - 126px)}.floating-cam{right:10px;bottom:72px;width:36%;min-width:100px;max-width:156px}.floating-cam #camVideo{min-height:108px;max-height:146px}.avatar-badge{width:84px;height:84px;font-size:30px}}
   </style>
 </head>
 <body>
@@ -25,7 +42,7 @@
       <div class="pill">fast pre-connected streams + short room codes</div>
     </div>
     <div class="layout">
-      <div class="panel">
+      <div class="panel" id="setupPanel">
         <p class="section-title">Room setup</p>
         <label class="label" for="nameInput">Your name</label>
         <input class="input" id="nameInput" maxlength="32" placeholder="Your name" value="Massim" />
@@ -57,22 +74,33 @@
         </div>
         <div class="tips">
           <strong>Better than the last build:</strong><br>
-          1. Screen and camera pipes are pre-connected when you join, so starting share is faster.<br>
-          2. Viewers do not get extra hear buttons anymore.<br>
-          3. Host now sees a live local preview of the shared screen and camera.<br>
-          4. Shorter 6-character room codes and join from live room list.
+          1. Viewer layout is now more responsive on iPad and phones.<br>
+          2. Fullscreen button added for bigger watching mode.<br>
+          3. Host camera becomes a small floating window over the shared screen.<br>
+          4. If host camera is off, viewer sees the host initials instead.
         </div>
       </div>
 
       <div class="stage">
         <div class="video-grid">
-          <div class="screen-wrap">
-            <div class="screen-head"><span id="screenTitle">Shared screen</span><span class="badge" id="remoteState">Waiting</span></div>
-            <video id="remoteVideo" autoplay playsinline></video>
+          <div class="screen-wrap" id="screenWrap">
+            <div class="screen-head"><span id="screenTitle">Shared screen</span><div class="screen-head-actions"><button class="secondary" id="fullscreenBtn" style="padding:8px 12px;font-size:13px">Fullscreen</button><span class="badge" id="remoteState">Waiting</span></div></div>
+            <div class="media-stage">
+              <video id="remoteVideo" autoplay playsinline></video>
+              <div class="avatar-fallback" id="avatarFallback">
+                <div class="avatar-badge" id="avatarInitials">H</div>
+                <div class="avatar-name" id="avatarName">Host</div>
+                <div class="avatar-sub">camera is off</div>
+              </div>
+              <div class="floating-cam" id="floatingCam" style="display:none">
+                <div class="screen-head"><span id="camTitle">Host camera</span><span class="badge" id="camState">Off</span></div>
+                <div class="cam-stack"><video id="camVideo" autoplay playsinline muted></video></div>
+              </div>
+            </div>
           </div>
-          <div class="cam-wrap">
-            <div class="screen-head"><span id="camTitle">Host camera</span><span class="badge" id="camState">Off</span></div>
-            <video id="camVideo" autoplay playsinline muted></video>
+          <div class="cam-wrap" id="camPanel">
+            <div class="screen-head"><span>Host camera preview</span><span class="badge" id="camStatePanel">Off</span></div>
+            <div class="cam-stack"><video id="camVideoPanel" autoplay playsinline muted></video></div>
             <audio id="remoteAudio" autoplay playsinline></audio>
           </div>
         </div>
@@ -80,6 +108,7 @@
           <button class="success" id="shareBtn" disabled>Start screen share</button>
           <button class="success" id="micBtn" disabled>Mic on</button>
           <button class="secondary" id="camBtn" disabled>Start camera</button>
+          <button class="secondary" id="fullscreenBtnBottom">Fullscreen</button>
           <button class="danger" id="leaveBtn" disabled>Leave room</button>
         </div>
         <div class="foot">Tip: if a protected app or DRM video is being shared, the browser can still show black. Normal tabs, windows, and desktop share should work.</div>
