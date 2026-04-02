@@ -1,5 +1,5 @@
 (function(){
-  var socket=null, inRoom=false, remoteSocketId=null, localAudioStream=null, screenStream=null, camStream=null, joinedRole='viewer', isHost=false, isMicOn=false, isSharing=false, isCamOn=false;
+  var socket=null, inRoom=false, remoteSocketId=null, localAudioStream=null, screenStream=null, camStream=null, joinedRole='viewer', isHost=false, isMicOn=false, isSharing=false, isCamOn=false, remoteHostName='Host', viewerFullscreen=false, viewerSideHidden=false;
   var pcMain=null, pcCam=null;
   var remoteScreenStream=new MediaStream(), remoteCamStream=new MediaStream(), remotePeerAudioStream=new MediaStream();
   var mainSenders={audio:null,video:null}, camSenders={video:null};
@@ -28,8 +28,61 @@
     roomsContainer:document.getElementById('roomsContainer'),
     refreshRoomsBtn:document.getElementById('refreshRoomsBtn'),
     screenTitle:document.getElementById('screenTitle'),
-    camTitle:document.getElementById('camTitle')
+    camTitle:document.getElementById('camTitle'),
+    viewerFullscreenBtn:document.getElementById('viewerFullscreenBtn'),
+    toggleSideBtn:document.getElementById('toggleSideBtn'),
+    camPlaceholder:document.getElementById('camPlaceholder'),
+    hostInitials:document.getElementById('hostInitials'),
+    hostDisplayName:document.getElementById('hostDisplayName')
   };
+
+
+  function nameToInitials(name){
+    var parts=String(name||'Host').trim().split(/\s+/).filter(Boolean).slice(0,2);
+    if(!parts.length) return 'H';
+    return parts.map(function(part){ return part.charAt(0).toUpperCase(); }).join('');
+  }
+  function updateHostIdentity(name){
+    remoteHostName = String(name||remoteHostName||'Host').trim() || 'Host';
+    if(els.hostDisplayName) els.hostDisplayName.textContent = remoteHostName;
+    if(els.hostInitials) els.hostInitials.textContent = nameToInitials(remoteHostName);
+  }
+  function updateCamPlaceholder(){
+    if(!els.camPlaceholder) return;
+    var show = !isHost && !isCamOn;
+    els.camPlaceholder.classList.toggle('show', !!show);
+    if(els.camVideo) els.camVideo.style.display = show ? 'none' : 'block';
+  }
+  function syncViewerFullscreenUi(){
+    var viewerMode = inRoom && !isHost;
+    if(els.viewerFullscreenBtn) els.viewerFullscreenBtn.hidden = !viewerMode;
+    if(els.toggleSideBtn) els.toggleSideBtn.hidden = !viewerMode || !viewerFullscreen;
+    if(els.viewerFullscreenBtn) els.viewerFullscreenBtn.textContent = viewerFullscreen ? 'Exit fullscreen' : 'Fullscreen';
+    if(els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show side' : 'Hide side';
+    document.body.classList.toggle('viewer-fullscreen', viewerMode && viewerFullscreen);
+    document.body.classList.toggle('side-hidden', viewerMode && viewerFullscreen && viewerSideHidden);
+  }
+  async function toggleViewerFullscreen(){
+    if(isHost || !inRoom) return;
+    viewerFullscreen = !viewerFullscreen;
+    viewerSideHidden = false;
+    syncViewerFullscreenUi();
+    var target = document.documentElement;
+    try{
+      if(viewerFullscreen){
+        if(target.requestFullscreen && !document.fullscreenElement) await target.requestFullscreen();
+      } else if(document.fullscreenElement && document.exitFullscreen){
+        await document.exitFullscreen();
+      }
+    }catch(e){}
+    safePlay(els.remoteVideo);
+    safePlay(els.camVideo);
+  }
+  function toggleViewerSide(){
+    if(isHost || !inRoom || !viewerFullscreen) return;
+    viewerSideHidden = !viewerSideHidden;
+    syncViewerFullscreenUi();
+  }
 
   function shortCode(){ var chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789', out=''; for(var i=0;i<6;i++) out += chars[Math.floor(Math.random()*chars.length)]; return out; }
   function sanitizeRoomId(value){ return String(value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6); }
@@ -92,7 +145,11 @@
   function attachRemotePeerAudio(stateText){
     if(!els.remoteAudio) return;
     els.remoteAudio.srcObject = remotePeerAudioStream;
+    els.remoteAudio.autoplay = true;
+    els.remoteAudio.controls = false;
+    els.remoteAudio.volume = 1;
     els.remoteAudio.muted = false;
+    try{ els.remoteAudio.load(); }catch(e){}
     safePlay(els.remoteAudio);
     if(stateText) els.remoteState.textContent = stateText;
   }
@@ -107,6 +164,7 @@
     els.camVideo.srcObject=stream||new MediaStream();
     els.camState.textContent=stateText||'Connected';
     safePlay(els.camVideo);
+    updateCamPlaceholder();
   }
   function updateTitles(){
     els.screenTitle.textContent=isHost ? 'Your shared screen' : 'Shared screen';
@@ -117,6 +175,8 @@
     els.shareBtn.disabled=!inRoom || !isHost; els.camBtn.disabled=!inRoom || !isHost; els.micBtn.disabled=!inRoom;
     els.shareBtn.textContent=isSharing?'Stop screen share':'Start screen share'; els.micBtn.textContent=isMicOn?'Mic on':'Mic off'; els.camBtn.textContent=isCamOn?'Stop camera':'Start camera';
     updateTitles();
+    updateCamPlaceholder();
+    syncViewerFullscreenUi();
   }
   function renderRooms(rooms){
     if(!rooms || !rooms.length){ els.roomsContainer.textContent='No active rooms yet.'; return; }
@@ -154,12 +214,14 @@
       var target=peers.find(function(p){ return p.role==='host'; }) || peers[0] || null;
       if(target){
         remoteSocketId=target.id;
+        if(target.displayName) updateHostIdentity(target.displayName);
         if(isHost){ forceNegotiate('main'); forceNegotiate('cam'); }
       }
     });
     socket.on('peer-joined',function(payload){
       setCount(payload&&payload.count||0);
       if(!payload || !payload.socketId) return;
+      if(payload.role==='host' && payload.displayName){ updateHostIdentity(payload.displayName); }
       if(isHost && payload.role==='viewer'){
         remoteSocketId=payload.socketId;
         ensurePeers();
@@ -179,6 +241,8 @@
       if(!isHost){
         els.remoteState.textContent=payload && payload.screenActive ? 'Receiving' : 'Waiting';
         els.camState.textContent=payload && payload.camActive ? 'Receiving' : 'Off';
+        isCamOn = !!(payload && payload.camActive);
+        updateCamPlaceholder();
       }
     });
     socket.on('signal',handleSignal);
@@ -226,6 +290,7 @@
         } else if(event.track){
           if(event.track.kind === 'audio' && isHost){
             if(!remotePeerAudioStream.getTracks().some(function(t){return t.id===event.track.id;})) remotePeerAudioStream.addTrack(event.track);
+            event.track.onunmute=function(){ attachRemotePeerAudio('Connected'); };
           } else if(!remoteScreenStream.getTracks().some(function(t){return t.id===event.track.id;})){
             remoteScreenStream.addTrack(event.track);
           }
@@ -386,11 +451,11 @@
   function resetAll(){
     cleanupRemote(); if(socket){ try{socket.disconnect()}catch(e){} socket=null; }
     stopTracks(localAudioStream); stopTracks(screenStream); stopTracks(camStream);
-    localAudioStream=null; screenStream=null; camStream=null; inRoom=false; joinedRole='viewer'; isHost=false; isMicOn=false; isSharing=false; isCamOn=false;
+    localAudioStream=null; screenStream=null; camStream=null; inRoom=false; joinedRole='viewer'; isHost=false; isMicOn=false; isSharing=false; isCamOn=false; viewerFullscreen=false; viewerSideHidden=false; remoteHostName='Host';
     disposeMixedSources();
     if(mixedAudioContext){ try{ mixedAudioContext.close(); }catch(e){} }
     mixedAudioContext=null; mixedAudioDestination=null; mixedOutgoingTrack=null;
-    setRole('Viewer'); setCount(0); updateUiState(); clearRemoteView();
+    setRole('Viewer'); setCount(0); updateHostIdentity('Host'); updateUiState(); clearRemoteView();
   }
   async function joinRoom(){
     if(inRoom) return;
@@ -400,8 +465,9 @@
     if(!ensureSocket()) return;
     try{
       setStatus('Opening required microphone...');
-      localAudioStream=await getMicStream(); isMicOn=true; inRoom=true; setRole(joinedRole==='host'?'Host':'Viewer'); updateUiState();
+      localAudioStream=await getMicStream(); isMicOn=true; inRoom=true; setRole(joinedRole==='host'?'Host':'Viewer'); viewerFullscreen=false; viewerSideHidden=false; updateUiState();
       els.remoteVideo.muted=joinedRole==='host';
+      if(joinedRole==='host') updateHostIdentity(displayName);
       syncLocalTracks();
       socket.emit('join-room',{roomId:roomId,displayName:displayName,requestedRole:joinedRole,password:password});
     }catch(err){ setStatus('Mic failed: '+((err&&err.message)?err.message:String(err))); resetAll(); }
@@ -410,11 +476,14 @@
   function copyRoom(){ var text=els.roomInput.value.trim(); if(!text){setStatus('Nothing to copy yet.');return} navigator.clipboard.writeText(text).then(function(){setStatus('Room code copied.')}).catch(function(){setStatus('Copy failed. Copy manually.')}) }
 
   els.generateRoomBtn.addEventListener('click',function(){ if(inRoom) return; els.roomInput.value=shortCode(); setStatus('Short room code generated.'); });
-  els.copyRoomBtn.addEventListener('click',copyRoom); els.joinBtn.addEventListener('click',joinRoom); els.shareBtn.addEventListener('click',toggleScreenShare); els.micBtn.addEventListener('click',toggleMic); els.camBtn.addEventListener('click',toggleCam); els.leaveBtn.addEventListener('click',leaveRoom); els.refreshRoomsBtn.addEventListener('click',function(){ ensureSocket() && socket.emit('get-room-list') });
+  els.copyRoomBtn.addEventListener('click',copyRoom); els.joinBtn.addEventListener('click',joinRoom); els.shareBtn.addEventListener('click',toggleScreenShare); els.micBtn.addEventListener('click',toggleMic); els.camBtn.addEventListener('click',toggleCam); els.leaveBtn.addEventListener('click',leaveRoom); if(els.viewerFullscreenBtn) els.viewerFullscreenBtn.addEventListener('click',toggleViewerFullscreen); if(els.toggleSideBtn) els.toggleSideBtn.addEventListener('click',toggleViewerSide); els.refreshRoomsBtn.addEventListener('click',function(){ ensureSocket() && socket.emit('get-room-list') });
 
   els.remoteVideo.controls=false; els.camVideo.controls=false; els.remoteVideo.muted=false; els.camVideo.muted=true;
   els.remoteVideo.setAttribute('playsinline',''); els.camVideo.setAttribute('playsinline','');
-  if(els.remoteAudio){ els.remoteAudio.autoplay=true; els.remoteAudio.setAttribute('playsinline',''); els.remoteAudio.muted=false; }
+  if(els.remoteAudio){ els.remoteAudio.autoplay=true; els.remoteAudio.setAttribute('playsinline',''); els.remoteAudio.muted=false; els.remoteAudio.volume=1; }
+  document.addEventListener('fullscreenchange', function(){
+    if(!document.fullscreenElement && viewerFullscreen){ viewerFullscreen=false; viewerSideHidden=false; syncViewerFullscreenUi(); }
+  });
   els.roomInput.value=location.hash&&location.hash.length>1?sanitizeRoomId(decodeURIComponent(location.hash.slice(1))):shortCode();
-  clearRemoteView(); updateUiState(); ensureSocket();
+  updateHostIdentity('Host'); clearRemoteView(); updateUiState(); ensureSocket();
 })();

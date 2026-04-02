@@ -114,7 +114,7 @@ io.on('connection', (socket) => {
     room.members.push({ id: socket.id, role, displayName });
     socket.join(roomId);
 
-    const peers = room.members.filter((m) => m.id !== socket.id).map((m) => ({ id: m.id, role: m.role }));
+    const peers = room.members.filter((m) => m.id !== socket.id).map((m) => ({ id: m.id, role: m.role, displayName: m.displayName }));
     socket.emit('joined-room', {
       roomId,
       peers,
