@@ -14,7 +14,7 @@
     .status{margin-top:14px;padding:12px 13px;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:16px;min-height:54px;color:#dbe6ff;font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word}.mini-grid{margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px}.mini-card{border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:18px;padding:12px}.mini-label{font-size:12px;color:var(--muted)}.mini-value{margin-top:4px;font-size:16px;font-weight:700}.tips{margin-top:14px;padding:14px;border-radius:18px;background:rgba(124,156,255,.08);border:1px solid rgba(124,156,255,.16);color:#d3defd;font-size:13px;line-height:1.5}
     .room-list{margin-top:14px;border:1px solid var(--line);border-radius:18px;padding:12px;background:rgba(255,255,255,.03)} .room-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px;border-radius:14px;background:rgba(8,12,24,.4);margin-top:8px}.room-meta{font-size:12px;color:var(--muted)} .room-code{font-size:15px;font-weight:700;letter-spacing:.08em}
     .video-grid{display:grid;grid-template-columns:1fr 300px;gap:16px}.screen-wrap,.cam-wrap{border:1px solid var(--line);background:rgba(4,8,20,.58);border-radius:22px;overflow:hidden}.screen-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);font-size:14px;color:#d7e3ff}.badge{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:999px;background:rgba(255,255,255,.04)}
-    #remoteVideo{width:100%;height:560px;display:block;background:#010206;object-fit:contain} #camVideo{width:100%;height:280px;display:block;background:#010206;object-fit:cover}.toolbar{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-top:14px}.foot{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
+    #remoteVideo{width:100%;height:560px;display:block;background:#010206;object-fit:contain} #camVideo{width:100%;height:280px;display:block;background:#010206;object-fit:cover}.toolbar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.foot{margin-top:14px;text-align:center;font-size:12px;color:var(--muted)}
     @media (max-width:980px){.layout{grid-template-columns:1fr}.video-grid{grid-template-columns:1fr}#remoteVideo{height:280px}.toolbar{grid-template-columns:1fr 1fr}}
   </style>
 </head>
@@ -22,7 +22,7 @@
   <div class="shell">
     <div class="hero">
       <div class="brand"><div class="logo">WR</div><div class="title"><h1>Watch Room</h1><p>Host-only screen share, mic required, optional host camera, iPad-friendly viewer mode.</p></div></div>
-      <div class="pill">short room code + visible live rooms</div>
+      <div class="pill">fast pre-connected streams + short room codes</div>
     </div>
     <div class="layout">
       <div class="panel">
@@ -30,7 +30,7 @@
         <label class="label" for="nameInput">Your name</label>
         <input class="input" id="nameInput" maxlength="32" placeholder="Your name" value="Massim" />
         <label class="label" for="roomInput">Room code</label>
-        <input class="input" id="roomInput" maxlength="8" placeholder="example: 8K2P4Q" />
+        <input class="input" id="roomInput" maxlength="6" placeholder="example: 8K2P4Q" />
         <label class="label" for="passwordInput">Room password (optional)</label>
         <input class="input" id="passwordInput" maxlength="32" placeholder="optional" />
         <label class="label" for="deviceMode">Mode</label>
@@ -56,22 +56,22 @@
           <div id="roomsContainer" style="margin-top:8px;color:var(--muted);font-size:13px">No active rooms yet.</div>
         </div>
         <div class="tips">
-          <strong>What changed in this build:</strong><br>
-          1. Short room codes.<br>
-          2. Live room list so another device can instantly see active rooms.<br>
-          3. Separate remote stream for shared screen and host camera.<br>
-          4. Remote videos start muted first so iPad Safari is less likely to stay black on autoplay.
+          <strong>Better than the last build:</strong><br>
+          1. Screen and camera pipes are pre-connected when you join, so starting share is faster.<br>
+          2. Viewers do not get extra hear buttons anymore.<br>
+          3. Host now sees a live local preview of the shared screen and camera.<br>
+          4. Shorter 6-character room codes and join from live room list.
         </div>
       </div>
 
       <div class="stage">
         <div class="video-grid">
           <div class="screen-wrap">
-            <div class="screen-head"><span>Shared screen</span><span class="badge" id="remoteState">Waiting</span></div>
-            <video id="remoteVideo" autoplay playsinline muted></video>
+            <div class="screen-head"><span id="screenTitle">Shared screen</span><span class="badge" id="remoteState">Waiting</span></div>
+            <video id="remoteVideo" autoplay playsinline></video>
           </div>
           <div class="cam-wrap">
-            <div class="screen-head"><span>Host camera</span><span class="badge" id="camState">Off</span></div>
+            <div class="screen-head"><span id="camTitle">Host camera</span><span class="badge" id="camState">Off</span></div>
             <video id="camVideo" autoplay playsinline muted></video>
           </div>
         </div>
@@ -79,11 +79,9 @@
           <button class="success" id="shareBtn" disabled>Start screen share</button>
           <button class="success" id="micBtn" disabled>Mic on</button>
           <button class="secondary" id="camBtn" disabled>Start camera</button>
-          <button class="warning" id="unmuteScreenBtn">Hear screen</button>
-          <button class="warning" id="unmuteCamBtn">Hear cam</button>
           <button class="danger" id="leaveBtn" disabled>Leave room</button>
         </div>
-        <div class="foot">If a streaming service or protected video is being shared, Windows or the browser may still show black because of DRM protection.</div>
+        <div class="foot">Tip: if a protected app or DRM video is being shared, the browser can still show black. Normal tabs, windows, and desktop share should work.</div>
       </div>
     </div>
   </div>
@@ -94,61 +92,85 @@
       var socket=null, inRoom=false, remoteSocketId=null, localAudioStream=null, screenStream=null, camStream=null, joinedRole='viewer', isHost=false, isMicOn=false, isSharing=false, isCamOn=false;
       var pcMain=null, pcCam=null, makingOfferMain=false, makingOfferCam=false, polite=false;
       var remoteScreenStream=new MediaStream(), remoteCamStream=new MediaStream();
-      var expectedMainVideo='screen';
-      var els={nameInput:document.getElementById('nameInput'),roomInput:document.getElementById('roomInput'),passwordInput:document.getElementById('passwordInput'),deviceMode:document.getElementById('deviceMode'),generateRoomBtn:document.getElementById('generateRoomBtn'),copyRoomBtn:document.getElementById('copyRoomBtn'),joinBtn:document.getElementById('joinBtn'),shareBtn:document.getElementById('shareBtn'),micBtn:document.getElementById('micBtn'),camBtn:document.getElementById('camBtn'),leaveBtn:document.getElementById('leaveBtn'),remoteVideo:document.getElementById('remoteVideo'),camVideo:document.getElementById('camVideo'),status:document.getElementById('status'),remoteState:document.getElementById('remoteState'),camState:document.getElementById('camState'),countValue:document.getElementById('countValue'),roleValue:document.getElementById('roleValue'),roomsContainer:document.getElementById('roomsContainer'),refreshRoomsBtn:document.getElementById('refreshRoomsBtn'),unmuteScreenBtn:document.getElementById('unmuteScreenBtn'),unmuteCamBtn:document.getElementById('unmuteCamBtn')};
+      var mainSenders={audio:null,video:null}, camSenders={video:null};
+      var els={nameInput:document.getElementById('nameInput'),roomInput:document.getElementById('roomInput'),passwordInput:document.getElementById('passwordInput'),deviceMode:document.getElementById('deviceMode'),generateRoomBtn:document.getElementById('generateRoomBtn'),copyRoomBtn:document.getElementById('copyRoomBtn'),joinBtn:document.getElementById('joinBtn'),shareBtn:document.getElementById('shareBtn'),micBtn:document.getElementById('micBtn'),camBtn:document.getElementById('camBtn'),leaveBtn:document.getElementById('leaveBtn'),remoteVideo:document.getElementById('remoteVideo'),camVideo:document.getElementById('camVideo'),status:document.getElementById('status'),remoteState:document.getElementById('remoteState'),camState:document.getElementById('camState'),countValue:document.getElementById('countValue'),roleValue:document.getElementById('roleValue'),roomsContainer:document.getElementById('roomsContainer'),refreshRoomsBtn:document.getElementById('refreshRoomsBtn'),screenTitle:document.getElementById('screenTitle'),camTitle:document.getElementById('camTitle')};
 
-      function setStatus(t){els.status.textContent=t}
-      function setRole(t){els.roleValue.textContent=t}
-      function setCount(n){els.countValue.textContent=String(n)}
-      function shortCode(){var chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789', out=''; for(var i=0;i<6;i++) out+=chars[Math.floor(Math.random()*chars.length)]; return out}
-      function sanitizeRoomId(value){return String(value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8)}
-      function stopTracks(stream){if(!stream)return; stream.getTracks().forEach(function(track){track.stop()})}
-      function safePlay(video){ if(!video) return; video.play().catch(function(){}) }
-
+      function shortCode(){ var chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789', out=''; for(var i=0;i<6;i++) out += chars[Math.floor(Math.random()*chars.length)]; return out; }
+      function sanitizeRoomId(value){ return String(value||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6); }
+      function setStatus(msg){ els.status.textContent=msg; }
+      function setCount(n){ els.countValue.textContent=String(n||0); }
+      function setRole(role){ els.roleValue.textContent=role; }
+      function stopTracks(stream){ if(!stream) return; stream.getTracks().forEach(function(t){ try{t.stop()}catch(e){} }); }
+      function safePlay(video){ if(!video) return Promise.resolve(); try{ var p=video.play(); if(p && typeof p.catch==='function'){ return p.catch(function(){}) } }catch(e){} return Promise.resolve(); }
+      function attachScreenStream(stream, stateText){
+        els.remoteVideo.srcObject=stream||new MediaStream();
+        els.remoteVideo.muted=!!isHost;
+        els.remoteState.textContent=stateText||'Connected';
+        safePlay(els.remoteVideo);
+      }
+      function attachCamStream(stream, stateText){
+        els.camVideo.srcObject=stream||new MediaStream();
+        els.camState.textContent=stateText||'Connected';
+        safePlay(els.camVideo);
+      }
+      function updateTitles(){
+        els.screenTitle.textContent=isHost ? 'Your shared screen' : 'Shared screen';
+        els.camTitle.textContent=isHost ? 'Your camera' : 'Host camera';
+      }
       function updateUiState(){
-        els.joinBtn.disabled=inRoom; els.leaveBtn.disabled=!inRoom; els.generateRoomBtn.disabled=inRoom; els.roomInput.disabled=inRoom; els.passwordInput.disabled=inRoom; els.deviceMode.disabled=inRoom;
+        els.joinBtn.disabled=inRoom; els.generateRoomBtn.disabled=inRoom; els.copyRoomBtn.disabled=false; els.deviceMode.disabled=inRoom; els.nameInput.disabled=inRoom; els.roomInput.disabled=inRoom; els.passwordInput.disabled=inRoom; els.leaveBtn.disabled=!inRoom;
         els.shareBtn.disabled=!inRoom || !isHost; els.camBtn.disabled=!inRoom || !isHost; els.micBtn.disabled=!inRoom;
-        els.shareBtn.textContent=isSharing?'Stop screen share':'Start screen share'; els.micBtn.textContent=isMicOn?'Mic on':'Enable mic'; els.camBtn.textContent=isCamOn?'Stop camera':'Start camera';
+        els.shareBtn.textContent=isSharing?'Stop screen share':'Start screen share'; els.micBtn.textContent=isMicOn?'Mic on':'Mic off'; els.camBtn.textContent=isCamOn?'Stop camera':'Start camera';
+        updateTitles();
       }
-
-      async function getMicStream(){ return navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true},video:false}) }
-      async function getCamStream(){ return navigator.mediaDevices.getUserMedia({audio:false,video:true}) }
-
-      function ensureSocket(){
-        if(socket) return true;
-        if(typeof io==='undefined'){setStatus('Socket.IO failed to load.'); return false}
-        socket=io({transports:['websocket','polling']});
-        socket.on('connect',function(){ setStatus('Connected to server. Ready to join room.'); socket.emit('get-room-list'); });
-        socket.on('connect_error',function(err){ setStatus('Server connection failed: '+((err&&err.message)?err.message:String(err))) });
-        socket.on('room-list',function(payload){ renderRooms((payload&&payload.rooms)||[]) });
-        socket.on('joined-room',async function(payload){
-          remoteSocketId = payload.peers && payload.peers[0] ? payload.peers[0].id : null;
-          polite = !!(payload.peers && payload.peers.length > 0);
-          isHost=!!payload.isHost; setCount(payload.count||1); setRole(isHost?'Host':'Viewer'); inRoom=true; updateUiState();
-          setStatus('Joined room '+payload.roomId+'. '+(remoteSocketId?'Partner found.':'Waiting for partner...'));
-          if(remoteSocketId){ ensurePeers(); syncLocalTracks(); }
-        });
-        socket.on('peer-joined',function(payload){ remoteSocketId=payload.socketId; setCount(payload.count||2); setStatus((payload.displayName||'Partner')+' joined. Connecting...'); ensurePeers(); syncLocalTracks(); });
-        socket.on('peer-count',function(payload){ setCount(payload.count||0) });
-        socket.on('media-state',function(payload){ if(!payload || payload.from!==remoteSocketId) return; els.remoteState.textContent=payload.screenActive?'Receiving':'Waiting'; els.camState.textContent=payload.camActive?'Receiving':'Off'; expectedMainVideo=payload.screenActive?'screen':'none'; if(!payload.screenActive){ remoteScreenStream = new MediaStream(); els.remoteVideo.srcObject = remoteScreenStream; } if(!payload.camActive){ remoteCamStream = new MediaStream(); els.camVideo.srcObject = remoteCamStream; } safePlay(els.remoteVideo); safePlay(els.camVideo); });
-        socket.on('signal',async function(message){ await handleSignal(message) });
-        socket.on('peer-left',function(payload){ setCount(payload&&payload.count?payload.count:1); cleanupRemote(); setStatus('Partner left the room.'); });
-        socket.on('room-full',function(){ setStatus('Room is full.'); inRoom=false; updateUiState() });
-        socket.on('room-error',function(message){ setStatus(message||'Room error.'); if(!inRoom) updateUiState() });
-        return true;
-      }
-
       function renderRooms(rooms){
-        if(!rooms.length){ els.roomsContainer.innerHTML='No active rooms yet.'; return; }
+        if(!rooms || !rooms.length){ els.roomsContainer.textContent='No active rooms yet.'; return; }
         els.roomsContainer.innerHTML='';
         rooms.forEach(function(room){
           var div=document.createElement('div'); div.className='room-item';
           var left=document.createElement('div');
-          left.innerHTML='<div class="room-code">'+room.roomId+'</div><div class="room-meta">'+room.count+' in room · '+(room.locked?'password':'open')+' · '+(room.hasHost?'host ready':'no host yet')+'</div>';
+          left.innerHTML='<div class="room-code">'+room.roomId+'</div><div class="room-meta">'+room.count+' inside · '+(room.hasHost?'host ready':'waiting for host')+(room.locked?' · password':'')+'</div>';
           var btn=document.createElement('button'); btn.className='secondary'; btn.style.padding='9px 12px'; btn.style.fontSize='13px'; btn.textContent='Use';
           btn.onclick=function(){ if(inRoom) return; els.roomInput.value=room.roomId; setStatus('Selected room '+room.roomId+'. Enter password if needed, then join.'); };
           div.appendChild(left); div.appendChild(btn); els.roomsContainer.appendChild(div);
         });
+      }
+      function ensureSocket(){
+        if(socket) return true;
+        socket=io();
+        socket.on('connect',function(){ socket.emit('get-room-list'); });
+        socket.on('room-list',function(payload){ renderRooms(payload && payload.rooms ? payload.rooms : []); });
+        socket.on('peer-count',function(payload){ setCount(payload && payload.count || 0); });
+        socket.on('room-error',function(message){ setStatus(message||'Room error.'); resetAll(); ensureSocket(); });
+        socket.on('room-full',function(){ setStatus('Room is full.'); resetAll(); ensureSocket(); });
+        socket.on('joined-room',async function(payload){
+          isHost=!!payload.isHost; joinedRole=isHost?'host':'viewer'; setRole(isHost?'Host':'Viewer'); setCount(payload.count||1); polite=!isHost; updateUiState(); setStatus(isHost?'Joined as host.':'Joined as viewer.');
+          ensurePeers();
+          if(isHost){ syncLocalTracks(); }
+          var peers=payload.peers||[];
+          var target=peers.find(function(p){ return p.role==='host'; }) || peers[0] || null;
+          if(target){
+            remoteSocketId=target.id;
+            await makeOffers();
+          }
+        });
+        socket.on('peer-joined',async function(payload){
+          setCount(payload&&payload.count||0);
+          if(!payload || !payload.socketId) return;
+          if(isHost && payload.role==='viewer'){ remoteSocketId=payload.socketId; syncLocalTracks(); await makeOffers(); setStatus('Viewer joined. Streams are ready.'); }
+          if(!isHost && payload.role==='host'){ remoteSocketId=payload.socketId; await makeOffers(); setStatus('Host joined. Waiting for media...'); }
+        });
+        socket.on('peer-left',function(payload){ setCount(payload&&payload.count||0); cleanupRemote(); setStatus('Peer left room.'); });
+        socket.on('media-state',function(payload){
+          if(payload && payload.from && remoteSocketId && payload.from!==remoteSocketId) return;
+          if(!isHost){
+            els.remoteState.textContent=payload && payload.screenActive ? 'Receiving' : 'Waiting';
+            els.camState.textContent=payload && payload.camActive ? 'Receiving' : 'Off';
+          }
+        });
+        socket.on('signal',handleSignal);
+        socket.on('disconnect',function(){ if(inRoom) setStatus('Disconnected. Rejoin the room.'); });
+        return true;
       }
 
       function createPeer(kind){
@@ -156,50 +178,46 @@
         pc.onicecandidate=function(event){ if(event.candidate && socket && remoteSocketId) socket.emit('signal',{to:remoteSocketId,data:{pc:kind,type:'candidate',candidate:event.candidate}}) };
         pc.onconnectionstatechange=function(){
           var state=pc.connectionState||'unknown';
-          if(kind==='main'){ if(state==='connected'){ els.remoteState.textContent='Connected'; } else if(state==='failed'||state==='disconnected'){ els.remoteState.textContent='Issue'; } }
-          if(kind==='cam'){ if(state==='connected' && isCamOn){ els.camState.textContent='Connected'; } else if(state==='failed'||state==='disconnected'){ els.camState.textContent='Issue'; } }
+          if(kind==='main') els.remoteState.textContent = state==='connected' ? (isHost?(isSharing?'Preview':'Ready'):'Connected') : (state==='connecting'?'Connecting':els.remoteState.textContent);
+          if(kind==='cam') els.camState.textContent = state==='connected' ? (isHost?(isCamOn?'Preview':'Off'):(isCamOn?'Connected':els.camState.textContent)) : (state==='connecting'?'Connecting':els.camState.textContent);
         };
         pc.ontrack=function(event){
           if(kind==='main'){
-            remoteScreenStream.addTrack(event.track); els.remoteVideo.srcObject=remoteScreenStream; els.remoteState.textContent='Receiving'; safePlay(els.remoteVideo);
+            event.streams[0].getTracks().forEach(function(track){ if(!remoteScreenStream.getTracks().some(function(t){return t.id===track.id;})) remoteScreenStream.addTrack(track); });
+            attachScreenStream(remoteScreenStream,'Receiving');
           } else {
-            remoteCamStream.addTrack(event.track); els.camVideo.srcObject=remoteCamStream; els.camState.textContent='Receiving'; safePlay(els.camVideo);
+            event.streams[0].getTracks().forEach(function(track){ if(!remoteCamStream.getTracks().some(function(t){return t.id===track.id;})) remoteCamStream.addTrack(track); });
+            attachCamStream(remoteCamStream,'Receiving');
           }
         };
+        if(kind==='main'){
+          mainSenders.audio=pc.addTransceiver('audio',{direction:'sendrecv'}).sender;
+          mainSenders.video=pc.addTransceiver('video',{direction:'sendrecv'}).sender;
+        } else {
+          camSenders.video=pc.addTransceiver('video',{direction:'sendrecv'}).sender;
+        }
         return pc;
       }
 
       function ensurePeers(){ if(!pcMain) pcMain=createPeer('main'); if(!pcCam) pcCam=createPeer('cam'); }
-
       function syncLocalTracks(){
         ensurePeers();
-        syncTrack(pcMain, localAudioStream && localAudioStream.getAudioTracks()[0], 'audio');
-        syncTrack(pcMain, screenStream && screenStream.getVideoTracks()[0], 'video');
-        syncTrack(pcCam, camStream && camStream.getVideoTracks()[0], 'video');
+        try{ mainSenders.audio.replaceTrack(localAudioStream && localAudioStream.getAudioTracks()[0] || null); }catch(e){}
+        try{ mainSenders.video.replaceTrack(screenStream && screenStream.getVideoTracks()[0] || null); }catch(e){}
+        try{ camSenders.video.replaceTrack(camStream && camStream.getVideoTracks()[0] || null); }catch(e){}
       }
-
-      function syncTrack(pc, track, kind){
-        var senders=pc.getSenders();
-        var sender=null;
-        for(var i=0;i<senders.length;i++){ if((senders[i].track && senders[i].track.kind===kind) || (!senders[i].track && kind==='video')){ sender=senders[i]; break; } }
-        if(track){
-          if(sender) sender.replaceTrack(track).catch(function(){});
-          else pc.addTrack(track, new MediaStream([track]));
-        } else if(sender && sender.track){
-          sender.replaceTrack(null).catch(function(){});
-        }
-      }
-
-      async function negotiate(kind){
+      async function makeOffer(kind){
         var pc = kind==='main' ? pcMain : pcCam;
         if(!pc || !remoteSocketId) return;
         try{
           if(kind==='main') makingOfferMain=true; else makingOfferCam=true;
-          var offer=await pc.createOffer(); await pc.setLocalDescription(offer);
+          var offer=await pc.createOffer();
+          await pc.setLocalDescription(offer);
           socket.emit('signal',{to:remoteSocketId,data:{pc:kind,type:'offer',offer:pc.localDescription}});
-        }catch(err){ setStatus('Offer error ('+kind+'): '+((err&&err.message)?err.message:String(err))) }
+        }catch(err){ setStatus('Offer error ('+kind+'): '+((err&&err.message)?err.message:String(err))); }
         finally{ if(kind==='main') makingOfferMain=false; else makingOfferCam=false; }
       }
+      async function makeOffers(){ ensurePeers(); await makeOffer('main'); await makeOffer('cam'); }
 
       async function handleSignal(message){
         try{
@@ -209,65 +227,56 @@
             var ignoreOffer=!polite && offerCollision;
             if(ignoreOffer) return;
             await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+            if(isHost){ syncLocalTracks(); }
             var answer=await pc.createAnswer(); await pc.setLocalDescription(answer);
             socket.emit('signal',{to:remoteSocketId,data:{pc:kind,type:'answer',answer:pc.localDescription}});
-            setStatus('Incoming '+kind+' stream accepted.');
           } else if(data.type==='answer' && data.answer){
             await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-            setStatus('Connected '+kind+' stream.');
           } else if(data.type==='candidate' && data.candidate){
-            try{ await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(err){ }
+            try{ await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(err){}
           }
-        }catch(err){ setStatus('Signal error: '+((err&&err.message)?err.message:String(err))) }
+        }catch(err){ setStatus('Signal error: '+((err&&err.message)?err.message:String(err))); }
       }
+
+      function emitMediaState(){ if(socket && inRoom) socket.emit('media-state',{roomId:els.roomInput.value,screenActive:isSharing,camActive:isCamOn}); }
+      async function getMicStream(){ return await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false}); }
+      async function getCamStream(){ return await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:360},frameRate:{ideal:24,max:30}}}); }
 
       async function startScreenShare(){
         try{
           if(!isHost){ setStatus('Only the host can share the screen.'); return; }
           if(!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia){ setStatus('Screen share is not supported in this browser.'); return; }
-          screenStream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:24},audio:true});
+          screenStream=await navigator.mediaDevices.getDisplayMedia({video:{frameRate:{ideal:24,max:30}},audio:true});
           var v=screenStream.getVideoTracks()[0]; if(v){ v.contentHint='detail'; v.onended=function(){ stopScreenShare(); }; }
-          isSharing=true; syncLocalTracks(); await negotiate('main'); updateUiState();
-          if(socket) socket.emit('media-state',{roomId:els.roomInput.value,screenActive:true,camActive:isCamOn});
-          setStatus('Screen sharing started.');
-        }catch(err){ setStatus('Screen share failed: '+((err&&err.message)?err.message:String(err))) }
+          isSharing=true; syncLocalTracks(); attachScreenStream(screenStream,'Preview'); emitMediaState(); updateUiState(); setStatus('Screen sharing started.');
+        }catch(err){ setStatus('Screen share failed: '+((err&&err.message)?err.message:String(err))); }
       }
-
-      async function stopScreenShare(){
-        stopTracks(screenStream); screenStream=null; isSharing=false; syncLocalTracks(); await negotiate('main'); updateUiState();
-        if(socket) socket.emit('media-state',{roomId:els.roomInput.value,screenActive:false,camActive:isCamOn});
-        setStatus('Screen sharing stopped.');
-      }
-
+      async function stopScreenShare(){ stopTracks(screenStream); screenStream=null; isSharing=false; syncLocalTracks(); attachScreenStream(new MediaStream(),'Waiting'); emitMediaState(); updateUiState(); setStatus('Screen sharing stopped.'); }
       async function toggleScreenShare(){ if(!inRoom) return; if(isSharing) await stopScreenShare(); else await startScreenShare(); }
-
       async function toggleMic(){
         if(!inRoom) return;
-        if(isMicOn){ stopTracks(localAudioStream); localAudioStream=null; isMicOn=false; syncLocalTracks(); await negotiate('main'); updateUiState(); setStatus('Microphone disabled.'); return; }
-        try{ localAudioStream=await getMicStream(); isMicOn=true; syncLocalTracks(); await negotiate('main'); updateUiState(); setStatus('Microphone enabled.'); }
-        catch(err){ setStatus('Mic failed: '+((err&&err.message)?err.message:String(err))) }
+        if(isMicOn){ stopTracks(localAudioStream); localAudioStream=null; isMicOn=false; syncLocalTracks(); updateUiState(); setStatus('Microphone disabled.'); return; }
+        try{ localAudioStream=await getMicStream(); isMicOn=true; syncLocalTracks(); updateUiState(); setStatus('Microphone enabled.'); }
+        catch(err){ setStatus('Mic failed: '+((err&&err.message)?err.message:String(err))); }
       }
-
       async function toggleCam(){
         if(!inRoom) return;
         if(!isHost){ setStatus('Viewer mode has camera disabled.'); return; }
-        if(isCamOn){ stopTracks(camStream); camStream=null; isCamOn=false; els.camState.textContent='Off'; syncLocalTracks(); await negotiate('cam'); updateUiState(); if(socket) socket.emit('media-state',{roomId:els.roomInput.value,screenActive:isSharing,camActive:false}); setStatus('Camera stopped.'); return; }
-        try{ camStream=await getCamStream(); var track=camStream.getVideoTracks()[0]; if(track) track.contentHint='motion'; isCamOn=true; els.camState.textContent='On'; syncLocalTracks(); await negotiate('cam'); updateUiState(); if(socket) socket.emit('media-state',{roomId:els.roomInput.value,screenActive:isSharing,camActive:true}); setStatus('Camera started.'); }
-        catch(err){ setStatus('Camera failed: '+((err&&err.message)?err.message:String(err))) }
+        if(isCamOn){ stopTracks(camStream); camStream=null; isCamOn=false; syncLocalTracks(); attachCamStream(new MediaStream(),'Off'); emitMediaState(); updateUiState(); setStatus('Camera stopped.'); return; }
+        try{ camStream=await getCamStream(); var track=camStream.getVideoTracks()[0]; if(track) track.contentHint='motion'; isCamOn=true; syncLocalTracks(); attachCamStream(camStream,'Preview'); emitMediaState(); updateUiState(); setStatus('Camera started.'); }
+        catch(err){ setStatus('Camera failed: '+((err&&err.message)?err.message:String(err))); }
       }
-
       function cleanupRemote(){
         if(pcMain){ try{pcMain.close()}catch(e){} pcMain=null; }
         if(pcCam){ try{pcCam.close()}catch(e){} pcCam=null; }
-        remoteSocketId=null; remoteScreenStream=new MediaStream(); remoteCamStream=new MediaStream(); els.remoteVideo.srcObject=remoteScreenStream; els.camVideo.srcObject=remoteCamStream; els.remoteState.textContent='Waiting'; els.camState.textContent='Off';
+        mainSenders={audio:null,video:null}; camSenders={video:null}; remoteSocketId=null; remoteScreenStream=new MediaStream(); remoteCamStream=new MediaStream();
+        attachScreenStream(new MediaStream(),'Waiting'); attachCamStream(new MediaStream(),'Off');
       }
-
       function resetAll(){
         cleanupRemote(); if(socket){ try{socket.disconnect()}catch(e){} socket=null; }
         stopTracks(localAudioStream); stopTracks(screenStream); stopTracks(camStream);
         localAudioStream=null; screenStream=null; camStream=null; inRoom=false; joinedRole='viewer'; isHost=false; isMicOn=false; isSharing=false; isCamOn=false; polite=false; setRole('Viewer'); setCount(0); updateUiState();
       }
-
       async function joinRoom(){
         if(inRoom) return;
         var roomId=sanitizeRoomId(els.roomInput.value); var displayName=els.nameInput.value.trim()||'Guest'; var password=els.passwordInput.value; joinedRole=els.deviceMode.value||'viewer';
@@ -277,21 +286,19 @@
         try{
           setStatus('Opening required microphone...');
           localAudioStream=await getMicStream(); isMicOn=true; inRoom=true; setRole(joinedRole==='host'?'Host':'Viewer'); updateUiState();
+          els.remoteVideo.muted=joinedRole==='host';
           socket.emit('join-room',{roomId:roomId,displayName:displayName,requestedRole:joinedRole,password:password});
         }catch(err){ setStatus('Mic failed: '+((err&&err.message)?err.message:String(err))); resetAll(); }
       }
-
       function leaveRoom(){ resetAll(); setStatus('Left room.'); ensureSocket(); }
       function copyRoom(){ var text=els.roomInput.value.trim(); if(!text){setStatus('Nothing to copy yet.');return} navigator.clipboard.writeText(text).then(function(){setStatus('Room code copied.')}).catch(function(){setStatus('Copy failed. Copy manually.')}) }
-      function unmuteScreen(){ els.remoteVideo.muted=!els.remoteVideo.muted; els.unmuteScreenBtn.textContent=els.remoteVideo.muted?'Hear screen':'Mute screen'; safePlay(els.remoteVideo) }
-      function unmuteCam(){ els.camVideo.muted=!els.camVideo.muted; els.unmuteCamBtn.textContent=els.camVideo.muted?'Hear cam':'Mute cam'; safePlay(els.camVideo) }
 
       els.generateRoomBtn.addEventListener('click',function(){ if(inRoom) return; els.roomInput.value=shortCode(); setStatus('Short room code generated.'); });
-      els.copyRoomBtn.addEventListener('click',copyRoom); els.joinBtn.addEventListener('click',joinRoom); els.shareBtn.addEventListener('click',toggleScreenShare); els.micBtn.addEventListener('click',toggleMic); els.camBtn.addEventListener('click',toggleCam); els.leaveBtn.addEventListener('click',leaveRoom); els.refreshRoomsBtn.addEventListener('click',function(){ ensureSocket() && socket.emit('get-room-list') }); els.unmuteScreenBtn.addEventListener('click',unmuteScreen); els.unmuteCamBtn.addEventListener('click',unmuteCam);
+      els.copyRoomBtn.addEventListener('click',copyRoom); els.joinBtn.addEventListener('click',joinRoom); els.shareBtn.addEventListener('click',toggleScreenShare); els.micBtn.addEventListener('click',toggleMic); els.camBtn.addEventListener('click',toggleCam); els.leaveBtn.addEventListener('click',leaveRoom); els.refreshRoomsBtn.addEventListener('click',function(){ ensureSocket() && socket.emit('get-room-list') });
 
-      els.remoteVideo.srcObject=remoteScreenStream; els.camVideo.srcObject=remoteCamStream; els.remoteVideo.controls=false; els.camVideo.controls=false;
+      els.remoteVideo.controls=false; els.camVideo.controls=false; els.remoteVideo.muted=false; els.camVideo.muted=true;
       els.roomInput.value=location.hash&&location.hash.length>1?sanitizeRoomId(decodeURIComponent(location.hash.slice(1))):shortCode();
-      updateUiState(); ensureSocket();
+      attachScreenStream(new MediaStream(),'Waiting'); attachCamStream(new MediaStream(),'Off'); updateUiState(); ensureSocket();
     })();
   </script>
 </body>

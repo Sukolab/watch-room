@@ -146,4 +146,4 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => console.log('Watch Room v3 running on port ' + PORT));
+server.listen(PORT, () => console.log('Watch Room v4 running on port ' + PORT));
