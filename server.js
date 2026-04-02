@@ -10,6 +10,31 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => res.sendFile(__dirname + '/index.html'));
 
+function buildIceServers() {
+  const servers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ];
+
+  const turnUrls = String(process.env.TURN_URL || '').split(',').map((v) => v.trim()).filter(Boolean);
+  const turnUsername = String(process.env.TURN_USERNAME || '').trim();
+  const turnCredential = String(process.env.TURN_CREDENTIAL || '').trim();
+
+  turnUrls.forEach((url) => {
+    const entry = { urls: url };
+    if (turnUsername) entry.username = turnUsername;
+    if (turnCredential) entry.credential = turnCredential;
+    servers.push(entry);
+  });
+
+  return servers;
+}
+
+app.get('/config.js', (_req, res) => {
+  res.type('application/javascript');
+  res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify({ iceServers: buildIceServers() })};`);
+});
+
 const rooms = new Map();
 
 function sanitizeRoomId(value) {
