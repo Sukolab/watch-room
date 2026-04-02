@@ -58,7 +58,7 @@
     if(els.viewerFullscreenBtn) els.viewerFullscreenBtn.hidden = !viewerMode;
     if(els.toggleSideBtn) els.toggleSideBtn.hidden = !viewerMode || !viewerFullscreen;
     if(els.viewerFullscreenBtn) els.viewerFullscreenBtn.textContent = viewerFullscreen ? 'Exit fullscreen' : 'Fullscreen';
-    if(els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show side' : 'Hide side';
+    if(els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show cam' : 'Hide cam';
     document.body.classList.toggle('viewer-fullscreen', viewerMode && viewerFullscreen);
     document.body.classList.toggle('side-hidden', viewerMode && viewerFullscreen && viewerSideHidden);
   }
@@ -82,6 +82,8 @@
     if(isHost || !inRoom || !viewerFullscreen) return;
     viewerSideHidden = !viewerSideHidden;
     syncViewerFullscreenUi();
+    safePlay(els.remoteVideo);
+    safePlay(els.camVideo);
   }
 
   function shortCode(){ var chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789', out=''; for(var i=0;i<6;i++) out += chars[Math.floor(Math.random()*chars.length)]; return out; }
