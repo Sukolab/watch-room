@@ -6,6 +6,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 const PORT = process.env.PORT || 3000;
+const MAX_VIEWERS = 5;
+const MAX_TOTAL = MAX_VIEWERS + 1;
 
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => res.sendFile(__dirname + '/index.html'));
@@ -32,7 +34,7 @@ function buildIceServers() {
 
 app.get('/config.js', (_req, res) => {
   res.type('application/javascript');
-  res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify({ iceServers: buildIceServers() })};`);
+  res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify({ iceServers: buildIceServers(), maxViewers: MAX_VIEWERS, maxTotal: MAX_TOTAL })};`);
 });
 
 const rooms = new Map();
@@ -64,6 +66,8 @@ function publicRooms() {
       count: room.members.length,
       locked: !!room.password,
       hasHost: room.members.some((m) => m.role === 'host'),
+      viewers: room.members.filter((m) => m.role === 'viewer').length,
+      maxViewers: MAX_VIEWERS,
     }));
 }
 
@@ -79,6 +83,10 @@ function emitPeerCount(roomId) {
 
 function hostExists(room) {
   return room.members.some((m) => m.role === 'host');
+}
+
+function viewerCount(room) {
+  return room.members.filter((m) => m.role === 'viewer').length;
 }
 
 io.on('connection', (socket) => {
@@ -100,12 +108,20 @@ io.on('connection', (socket) => {
     const isCreating = !room;
     if (!room) room = ensureRoom(roomId, password);
 
-    if (room.members.length >= 8) return socket.emit('room-full');
     if (room.password && room.password !== password) return socket.emit('room-error', 'Wrong room password.');
     if (!room.password && isCreating && password) room.password = password;
 
-    let role = requestedRole;
-    if (role === 'host' && hostExists(room)) role = 'viewer';
+    if (requestedRole === 'host' && hostExists(room)) {
+      return socket.emit('room-error', 'This room already has a host. Join as viewer instead.');
+    }
+    if (requestedRole === 'viewer' && viewerCount(room) >= MAX_VIEWERS) {
+      return socket.emit('room-error', `Viewer limit reached. Max ${MAX_VIEWERS} viewers.`);
+    }
+    if (room.members.length >= MAX_TOTAL) {
+      return socket.emit('room-error', `Room is full. Max ${MAX_TOTAL} people total.`);
+    }
+
+    const role = requestedRole;
 
     socket.data.roomId = roomId;
     socket.data.displayName = displayName;
@@ -114,13 +130,17 @@ io.on('connection', (socket) => {
     room.members.push({ id: socket.id, role, displayName });
     socket.join(roomId);
 
-    const peers = room.members.filter((m) => m.id !== socket.id).map((m) => ({ id: m.id, role: m.role, displayName: m.displayName }));
+    const peers = room.members
+      .filter((m) => m.id !== socket.id)
+      .map((m) => ({ id: m.id, role: m.role, displayName: m.displayName }));
+
     socket.emit('joined-room', {
       roomId,
       peers,
       count: room.members.length,
       isHost: role === 'host',
       locked: !!room.password,
+      maxViewers: MAX_VIEWERS,
     });
 
     peers.forEach((peer) => {
@@ -163,7 +183,10 @@ io.on('connection', (socket) => {
     if (room.members.length === 0) {
       rooms.delete(roomId);
     } else {
-      room.members.forEach((m) => io.to(m.id).emit('peer-left', { count: room.members.length }));
+      room.members.forEach((m) => io.to(m.id).emit('peer-left', {
+        socketId: socket.id,
+        count: room.members.length,
+      }));
       emitPeerCount(roomId);
     }
 
@@ -171,4 +194,4 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => console.log('Watch Room v4 running on port ' + PORT));
+server.listen(PORT, () => console.log('Watch Room multi-viewer running on port ' + PORT));
