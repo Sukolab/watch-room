@@ -128,6 +128,7 @@ io.on('connection', (socket) => {
     socket.data.role = role;
 
     room.members.push({ id: socket.id, role, displayName });
+    if (role === 'host') room.hostId = socket.id;
     socket.join(roomId);
 
     const peers = room.members
@@ -141,6 +142,8 @@ io.on('connection', (socket) => {
       isHost: role === 'host',
       locked: !!room.password,
       maxViewers: MAX_VIEWERS,
+      mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null },
+      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
     });
 
     peers.forEach((peer) => {
@@ -153,6 +156,14 @@ io.on('connection', (socket) => {
     });
 
     emitPeerCount(roomId);
+    io.to(roomId).emit('room-state', {
+      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+      mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+    });
+    if (room.screenActive || room.camActive) {
+      const host = room.members.find((m) => m.role === 'host');
+      if (host) io.to(host.id).emit('sync-media-request', { targetId: socket.id, screenActive: !!room.screenActive, camActive: !!room.camActive });
+    }
     emitRoomList();
   });
 
@@ -165,11 +176,50 @@ io.on('connection', (socket) => {
     roomId = sanitizeRoomId(roomId);
     const room = getRoom(roomId);
     if (!room) return;
-    socket.to(roomId).emit('media-state', {
+    if (room.hostId === socket.id) {
+      room.screenActive = !!screenActive;
+      room.camActive = !!camActive;
+    }
+    io.to(roomId).emit('media-state', {
       from: socket.id,
       screenActive: !!screenActive,
       camActive: !!camActive,
     });
+    io.to(roomId).emit('room-state', {
+      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+      mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+    });
+    emitRoomList();
+  });
+
+  socket.on('leave-room', () => {
+    const roomId = sanitizeRoomId(socket.data.roomId);
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (!room) return;
+
+    room.members = room.members.filter((m) => m.id !== socket.id);
+    if (room.hostId === socket.id) {
+      room.hostId = null;
+      room.screenActive = false;
+      room.camActive = false;
+    }
+    socket.leave(roomId);
+    socket.data.roomId = '';
+    socket.data.displayName = '';
+    socket.data.role = '';
+
+    if (room.members.length === 0) {
+      rooms.delete(roomId);
+    } else {
+      room.members.forEach((m) => io.to(m.id).emit('peer-left', { socketId: socket.id, count: room.members.length }));
+      io.to(roomId).emit('room-state', {
+        participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+        mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+      });
+      emitPeerCount(roomId);
+    }
+    emitRoomList();
   });
 
   socket.on('disconnect', () => {
@@ -179,6 +229,11 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     room.members = room.members.filter((m) => m.id !== socket.id);
+    if (room.hostId === socket.id) {
+      room.hostId = null;
+      room.screenActive = false;
+      room.camActive = false;
+    }
 
     if (room.members.length === 0) {
       rooms.delete(roomId);
@@ -187,6 +242,10 @@ io.on('connection', (socket) => {
         socketId: socket.id,
         count: room.members.length,
       }));
+      io.to(roomId).emit('room-state', {
+        participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+        mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+      });
       emitPeerCount(roomId);
     }
 

@@ -14,6 +14,7 @@
   var camStream = null;
   var remoteHostName = 'Host';
   var hostId = null;
+  var participants = [];
 
   var peers = new Map();
   var mixedAudioContext = null;
@@ -53,7 +54,8 @@
     toggleSideBtn: document.getElementById('toggleSideBtn'),
     camPlaceholder: document.getElementById('camPlaceholder'),
     hostInitials: document.getElementById('hostInitials'),
-    hostDisplayName: document.getElementById('hostDisplayName')
+    hostDisplayName: document.getElementById('hostDisplayName'),
+    peopleStrip: document.getElementById('peopleStrip')
   };
 
   function sanitizeRoomId(value) {
@@ -88,12 +90,60 @@
     els.camPlaceholder.classList.toggle('show', !!show);
     if (els.camVideo) els.camVideo.style.display = show ? 'none' : 'block';
   }
+
+  function participantRoleText(role, me) {
+    if (me) return role === 'host' ? 'You • host' : 'You';
+    return role === 'host' ? 'Host' : 'Viewer';
+  }
+  function renderParticipants() {
+    if (!els.peopleStrip) return;
+    var list = [];
+    if (inRoom && socket && socket.id) {
+      var myName = String(els.nameInput && els.nameInput.value || 'You').trim() || 'You';
+      list.push({ id: socket.id, role: joinedRole || (isHost ? 'host' : 'viewer'), displayName: myName, me: true });
+    }
+    participants.forEach(function (p) {
+      if (!socket || p.id !== socket.id) list.push({ id: p.id, role: p.role, displayName: p.displayName, me: false });
+    });
+    if (!list.length) {
+      els.peopleStrip.innerHTML = '<div style="color:var(--muted);font-size:13px">No one in room yet.</div>';
+      return;
+    }
+    els.peopleStrip.innerHTML = list.map(function (p) {
+      var cls = 'person-chip' + (p.role === 'host' ? ' host' : '') + (p.me ? ' me' : '');
+      return '<div class="' + cls + '"><div class="person-avatar">' + nameToInitials(p.displayName || (p.role === 'host' ? 'Host' : 'Viewer')) + '</div><div class="person-name">' + (p.displayName || 'Guest') + '</div><div class="person-role">' + participantRoleText(p.role, p.me) + '</div></div>';
+    }).join('');
+  }
+  function upsertParticipant(meta) {
+    if (!meta || !meta.id) return;
+    var found = false;
+    participants = participants.map(function (p) {
+      if (p.id === meta.id) { found = true; return { id: meta.id, role: meta.role || p.role || 'viewer', displayName: meta.displayName || p.displayName || 'Guest' }; }
+      return p;
+    });
+    if (!found) participants.push({ id: meta.id, role: meta.role || 'viewer', displayName: meta.displayName || 'Guest' });
+    renderParticipants();
+  }
+  function removeParticipant(id) {
+    participants = participants.filter(function (p) { return p.id !== id; });
+    renderParticipants();
+  }
+  function setParticipants(list) {
+    participants = (list || []).filter(Boolean).map(function (p) { return { id: p.id, role: p.role || 'viewer', displayName: p.displayName || 'Guest' }; });
+    var host = participants.find(function (p) { return p.role === 'host'; });
+    if (host && (!isHost || (socket && host.id !== socket.id))) {
+      hostId = host.id;
+      updateHostIdentity(host.displayName);
+    }
+    renderParticipants();
+  }
+
   function syncViewerFullscreenUi() {
     var viewerMode = inRoom && !isHost;
     if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.hidden = !viewerMode;
     if (els.toggleSideBtn) els.toggleSideBtn.hidden = !viewerMode || !viewerFullscreen;
     if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.textContent = viewerFullscreen ? 'Exit fullscreen' : 'Fullscreen';
-    if (els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show cam' : 'Hide cam';
+    if (els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show people' : 'Hide people';
     document.body.classList.toggle('viewer-fullscreen', viewerMode && viewerFullscreen);
     document.body.classList.toggle('side-hidden', viewerMode && viewerFullscreen && viewerSideHidden);
   }
@@ -487,6 +537,7 @@
       } else if (screenTrack) {
         peer.senders.mainVideo = mainPc.addTrack(screenTrack, screenStream);
       }
+      if (!screenTrack && peer.senders.mainVideo) { try { await peer.senders.mainVideo.replaceTrack(null); } catch (e) {} }
 
       var camPc = createPc(peerId, 'cam');
       var camTrack = camStream && camStream.getVideoTracks()[0] ? camStream.getVideoTracks()[0] : null;
@@ -495,6 +546,7 @@
       } else if (camTrack) {
         peer.senders.camVideo = camPc.addTrack(camTrack, camStream);
       }
+      if (!camTrack && peer.senders.camVideo) { try { await peer.senders.camVideo.replaceTrack(null); } catch (e) {} }
     }
   }
 
@@ -502,6 +554,139 @@
     peers.forEach(function (_peer, peerId) {
       refreshPeerTracks(peerId);
     });
+  }
+
+  function bindSocketEvents() {
+    if (!socket || socket.__watchRoomBound) return;
+    socket.__watchRoomBound = true;
+
+    socket.on('connect', function () {
+      socket.emit('get-room-list');
+      if (!inRoom) setStatus('Ready to join.');
+    });
+    socket.on('room-list', renderRoomList);
+    socket.on('room-error', function (msg) {
+      setStatus(msg || 'Unable to join room.');
+      inRoom = false;
+      updateButtons();
+    });
+    socket.on('joined-room', async function (payload) {
+      inRoom = true;
+      roomId = payload.roomId;
+      joinedRole = payload.isHost ? 'host' : 'viewer';
+      isHost = !!payload.isHost;
+      setCount(payload.count || 1);
+      setRoleText(joinedRole);
+      setStatus('Joined room ' + roomId + '.');
+      if (els.roomInput) els.roomInput.value = roomId;
+      if (els.deviceMode) els.deviceMode.value = joinedRole;
+      setParticipants((payload.participants || []).filter(function (p) { return !socket || p.id !== socket.id; }));
+      if (isHost) {
+        hostId = socket.id;
+        updateHostIdentity(String(els.nameInput && els.nameInput.value || 'Host'));
+        if (els.screenTitle) els.screenTitle.textContent = 'Your shared screen';
+        if (els.camTitle) els.camTitle.textContent = 'Your camera';
+        setRemoteState(payload.mediaState && payload.mediaState.screenActive ? 'Live' : 'Not sharing');
+        setCamState(payload.mediaState && payload.mediaState.camActive ? 'Live' : 'Off');
+      } else {
+        if (els.screenTitle) els.screenTitle.textContent = 'Shared screen';
+        if (els.camTitle) els.camTitle.textContent = 'Host camera';
+        setRemoteState(payload.mediaState && payload.mediaState.screenActive ? 'Receiving' : 'Waiting');
+        setCamState(payload.mediaState && payload.mediaState.camActive ? 'Receiving' : 'Off');
+      }
+      (payload.peers || []).forEach(function (peerMeta) {
+        ensurePeerRecord(peerMeta.id, { role: peerMeta.role, displayName: peerMeta.displayName });
+      });
+      updateButtons();
+      setupRemoteMediaBindings();
+      for (var i = 0; i < (payload.peers || []).length; i++) {
+        var peerMeta = payload.peers[i];
+        await refreshPeerTracks(peerMeta.id);
+        await negotiate(peerMeta.id, 'main');
+        if (isHost && peerMeta.role === 'viewer') await negotiate(peerMeta.id, 'cam');
+      }
+    });
+    socket.on('peer-joined', async function (payload) {
+      setCount(payload.count || 0);
+      ensurePeerRecord(payload.socketId, { role: payload.role, displayName: payload.displayName });
+      upsertParticipant({ id: payload.socketId, role: payload.role, displayName: payload.displayName });
+      if (payload.role === 'host') {
+        hostId = payload.socketId;
+        updateHostIdentity(payload.displayName);
+      }
+      await refreshPeerTracks(payload.socketId);
+      await negotiate(payload.socketId, 'main');
+      if (isHost && payload.role === 'viewer') await negotiate(payload.socketId, 'cam');
+      setStatus((payload.displayName || 'Someone') + ' joined the room.');
+    });
+    socket.on('peer-left', function (payload) {
+      setCount(payload.count || 0);
+      destroyPeer(payload.socketId);
+      removeParticipant(payload.socketId);
+      setStatus('A participant left the room.');
+    });
+    socket.on('peer-count', function (payload) { setCount(payload.count || 0); });
+    socket.on('signal', function (payload) { handleSignal(payload.from, payload.data || {}); });
+    socket.on('room-state', function (payload) {
+      if (payload && payload.participants) setParticipants((payload.participants || []).filter(function (p) { return !socket || p.id !== socket.id; }));
+      if (payload && payload.mediaState && !isHost) {
+        setRemoteState(payload.mediaState.screenActive ? 'Receiving' : 'Waiting');
+        setCamState(payload.mediaState.camActive ? 'Receiving' : 'Off');
+        if (!payload.mediaState.screenActive) {
+          remoteScreenStream = new MediaStream();
+          if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
+        }
+        if (!payload.mediaState.camActive) {
+          remoteCamStream = new MediaStream();
+          if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
+          isCamOn = false;
+          updateCamPlaceholder();
+        }
+      }
+    });
+    socket.on('sync-media-request', async function (payload) {
+      if (!isHost || !payload || !payload.targetId) return;
+      await refreshPeerTracks(payload.targetId);
+      await negotiate(payload.targetId, 'main');
+      if ((payload.camActive || isCamOn) && peers.get(payload.targetId) && peers.get(payload.targetId).role === 'viewer') {
+        await negotiate(payload.targetId, 'cam');
+      }
+    });
+    socket.on('media-state', function (payload) {
+      var peer = ensurePeerRecord(payload.from);
+      if (peer.role === 'host' && !isHost) {
+        if (payload.screenActive) {
+          setRemoteState('Receiving');
+        } else {
+          remoteScreenStream = new MediaStream();
+          if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
+          setRemoteState('Waiting');
+        }
+        isCamOn = !!payload.camActive;
+        setCamState(isCamOn ? 'Receiving' : 'Off');
+        if (!isCamOn) {
+          remoteCamStream = new MediaStream();
+          if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
+        }
+        updateCamPlaceholder();
+      }
+    });
+    socket.on('disconnect', function () {
+      if (inRoom) {
+        cleanupRoomState(false);
+        setStatus('Disconnected from room.');
+      }
+      participants = [];
+      renderParticipants();
+    });
+  }
+
+  function ensureSocket() {
+    if (socket && socket.connected) return socket;
+    if (!socket) socket = io();
+    if (!socket.connected) socket.connect();
+    bindSocketEvents();
+    return socket;
   }
 
   async function joinRoom() {
@@ -522,88 +707,17 @@
       return;
     }
 
-    socket = io();
-    socket.on('connect', function () {
+    ensureSocket();
+    if (socket.connected) {
       socket.emit('join-room', { roomId: nextRoomId, displayName: displayName, requestedRole: requestedRole, password: password });
       socket.emit('get-room-list');
-    });
-    socket.on('room-list', renderRoomList);
-    socket.on('room-error', function (msg) { setStatus(msg || 'Unable to join room.'); if (socket) socket.disconnect(); socket = null; inRoom = false; updateButtons(); });
-    socket.on('joined-room', async function (payload) {
-      inRoom = true;
-      roomId = payload.roomId;
-      joinedRole = payload.isHost ? 'host' : 'viewer';
-      isHost = !!payload.isHost;
-      setCount(payload.count || 1);
-      setRoleText(joinedRole);
-      setStatus('Joined room ' + roomId + '.');
-      if (els.roomInput) els.roomInput.value = roomId;
-      if (els.deviceMode) els.deviceMode.value = joinedRole;
-      if (isHost) {
-        hostId = socket.id;
-        updateHostIdentity(displayName);
-        if (els.screenTitle) els.screenTitle.textContent = 'Your shared screen';
-        if (els.camTitle) els.camTitle.textContent = 'Your camera';
-        setRemoteState('Not sharing');
-        setCamState('Off');
-      } else {
-        if (els.screenTitle) els.screenTitle.textContent = 'Shared screen';
-        if (els.camTitle) els.camTitle.textContent = 'Host camera';
-      }
-      (payload.peers || []).forEach(function (peerMeta) {
-        ensurePeerRecord(peerMeta.id, { role: peerMeta.role, displayName: peerMeta.displayName });
+    } else {
+      socket.once('connect', function () {
+        socket.emit('join-room', { roomId: nextRoomId, displayName: displayName, requestedRole: requestedRole, password: password });
+        socket.emit('get-room-list');
       });
-      updateButtons();
-      setupRemoteMediaBindings();
-      for (var i = 0; i < (payload.peers || []).length; i++) {
-        var peerMeta = payload.peers[i];
-        await refreshPeerTracks(peerMeta.id);
-        await negotiate(peerMeta.id, 'main');
-        if (isHost && peerMeta.role === 'viewer') await negotiate(peerMeta.id, 'cam');
-      }
-    });
-    socket.on('peer-joined', async function (payload) {
-      setCount(payload.count || 0);
-      ensurePeerRecord(payload.socketId, { role: payload.role, displayName: payload.displayName });
-      if (payload.role === 'host') {
-        hostId = payload.socketId;
-        updateHostIdentity(payload.displayName);
-      }
-      await refreshPeerTracks(payload.socketId);
-      await negotiate(payload.socketId, 'main');
-      if (isHost && payload.role === 'viewer') await negotiate(payload.socketId, 'cam');
-      setStatus((payload.displayName || 'Someone') + ' joined the room.');
-    });
-    socket.on('peer-left', function (payload) {
-      setCount(payload.count || 0);
-      destroyPeer(payload.socketId);
-      setStatus('A participant left the room.');
-    });
-    socket.on('peer-count', function (payload) { setCount(payload.count || 0); });
-    socket.on('signal', function (payload) { handleSignal(payload.from, payload.data || {}); });
-    socket.on('media-state', function (payload) {
-      var peer = ensurePeerRecord(payload.from);
-      if (peer.role === 'host' && !isHost) {
-        if (payload.screenActive) {
-          setRemoteState('Live');
-        } else {
-          remoteScreenStream = new MediaStream();
-          if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
-          setRemoteState('Waiting');
-        }
-        isCamOn = !!payload.camActive;
-        setCamState(isCamOn ? 'Live' : 'Off');
-        if (!isCamOn) {
-          remoteCamStream = new MediaStream();
-          if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
-        }
-        updateCamPlaceholder();
-      }
-    });
-    socket.on('disconnect', function () {
-      leaveRoom(false);
-      setStatus('Disconnected from room.');
-    });
+    }
+    setStatus('Joining room ' + nextRoomId + '...');
   }
 
   async function startStopMic() {
@@ -719,14 +833,13 @@
     if (socket) socket.emit('media-state', { roomId: roomId, screenActive: !!isSharing, camActive: false });
   }
 
-  function leaveRoom(manual) {
-    if (typeof manual === 'undefined') manual = true;
+
+  function cleanupRoomState(resetRoomId) {
+    if (typeof resetRoomId === 'undefined') resetRoomId = true;
     peers.forEach(function (_peer, peerId) { destroyPeer(peerId); });
     peers.clear();
-    if (manual && socket) socket.disconnect();
-    socket = null;
     inRoom = false;
-    roomId = '';
+    if (resetRoomId) roomId = '';
     joinedRole = els.deviceMode && els.deviceMode.value === 'host' ? 'host' : 'viewer';
     isHost = false;
     hostId = null;
@@ -739,6 +852,18 @@
     stopCamera();
     stopLocalAudio();
     updateButtons();
+  }
+
+  function leaveRoom(manual) {
+    if (typeof manual === 'undefined') manual = true;
+    var leavingRoomId = roomId;
+    cleanupRoomState(true);
+    if (manual && socket && socket.connected && leavingRoomId) {
+      socket.emit('leave-room');
+      socket.emit('get-room-list');
+    } else if (socket && socket.connected) {
+      socket.emit('get-room-list');
+    }
   }
 
   function renderRoomList(payload) {
@@ -776,7 +901,7 @@
   if (els.micBtn) els.micBtn.onclick = startStopMic;
   if (els.shareBtn) els.shareBtn.onclick = startStopShare;
   if (els.camBtn) els.camBtn.onclick = startStopCam;
-  if (els.refreshRoomsBtn) els.refreshRoomsBtn.onclick = function () { if (socket) socket.emit('get-room-list'); else renderRoomList({ rooms: [] }); };
+  if (els.refreshRoomsBtn) els.refreshRoomsBtn.onclick = function () { ensureSocket(); if (socket) socket.emit('get-room-list'); };
   if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.onclick = toggleViewerFullscreen;
   if (els.toggleSideBtn) els.toggleSideBtn.onclick = toggleViewerSide;
 
@@ -788,9 +913,11 @@
     }
   });
 
+  ensureSocket();
   setupRemoteMediaBindings();
   clearRemoteDisplay();
   if (els.roomInput && !els.roomInput.value) els.roomInput.value = shortCode();
   updateButtons();
+  renderParticipants();
   setStatus('Not connected.');
 })();
