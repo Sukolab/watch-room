@@ -262,6 +262,19 @@
     return !!peer && isHostRelation(peer);
   }
 
+  function shouldInitiateMain(peerId) {
+    var peer = peers.get(peerId);
+    if (!peer || !socket || !socket.id) return false;
+    if (isHost) return true;
+    if (peer.role === 'host') return false;
+    return String(socket.id) < String(peerId);
+  }
+
+  function shouldInitiateCam(peerId) {
+    var peer = peers.get(peerId);
+    return !!(isHost && peer && peer.role === 'viewer');
+  }
+
   function ensurePeerRecord(peerId, meta) {
     var peer = peers.get(peerId);
     if (!peer) {
@@ -408,7 +421,9 @@
     };
 
     pc.onnegotiationneeded = function () {
-      negotiate(peerId, kind);
+      if ((kind === 'main' && shouldInitiateMain(peerId)) || (kind === 'cam' && shouldInitiateCam(peerId))) {
+        negotiate(peerId, kind);
+      }
     };
 
     pc.onconnectionstatechange = function () {
@@ -490,12 +505,18 @@
 
     if (data.description) {
       var description = data.description;
-      var readyForOffer = !peer.makingOffer[kind] && (pc.signalingState === 'stable' || pc.signalingState === 'have-local-offer');
-      var offerCollision = description.type === 'offer' && !readyForOffer;
+      var offerCollision = description.type === 'offer' && (peer.makingOffer[kind] || pc.signalingState !== 'stable');
       peer.ignoreOffer[kind] = !polite && offerCollision;
       if (peer.ignoreOffer[kind]) return;
       try {
-        await pc.setRemoteDescription(description);
+        if (offerCollision && polite) {
+          await Promise.all([
+            pc.setLocalDescription({ type: 'rollback' }),
+            pc.setRemoteDescription(description)
+          ]);
+        } else {
+          await pc.setRemoteDescription(description);
+        }
         while (peer.pending[kind].length) {
           var c = peer.pending[kind].shift();
           try { await pc.addIceCandidate(c); } catch (e) {}
@@ -507,6 +528,12 @@
         }
       } catch (e) {
         setStatus('Signal sync retrying for ' + getPeerLabel(from) + '.');
+        if (description.type === 'offer' && polite) {
+          try {
+            await refreshPeerTracks(from);
+            await negotiate(from, kind);
+          } catch (err) {}
+        }
       }
     } else if (data.candidate) {
       try {
@@ -556,6 +583,19 @@
     });
   }
 
+  var mediaSyncTimer = null;
+  function scheduleMediaSyncRequest(reason) {
+    if (isHost || !socket || !hostId) return;
+    if (mediaSyncTimer) clearTimeout(mediaSyncTimer);
+    mediaSyncTimer = setTimeout(function () {
+      var hasRemoteScreen = !!(remoteScreenStream && remoteScreenStream.getVideoTracks && remoteScreenStream.getVideoTracks().length);
+      if (!hasRemoteScreen && inRoom && hostId) {
+        socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'retry' });
+        setRemoteState('Receiving');
+      }
+    }, 1800);
+  }
+
   function bindSocketEvents() {
     if (!socket || socket.__watchRoomBound) return;
     socket.__watchRoomBound = true;
@@ -602,8 +642,11 @@
       for (var i = 0; i < (payload.peers || []).length; i++) {
         var peerMeta = payload.peers[i];
         await refreshPeerTracks(peerMeta.id);
-        await negotiate(peerMeta.id, 'main');
-        if (isHost && peerMeta.role === 'viewer') await negotiate(peerMeta.id, 'cam');
+        if (shouldInitiateMain(peerMeta.id)) await negotiate(peerMeta.id, 'main');
+        if (shouldInitiateCam(peerMeta.id)) await negotiate(peerMeta.id, 'cam');
+      }
+      if (!isHost && payload.mediaState && payload.mediaState.screenActive && payload.mediaState.hostId) {
+        scheduleMediaSyncRequest('join-room');
       }
     });
     socket.on('peer-joined', async function (payload) {
@@ -615,9 +658,10 @@
         updateHostIdentity(payload.displayName);
       }
       await refreshPeerTracks(payload.socketId);
-      await negotiate(payload.socketId, 'main');
-      if (isHost && payload.role === 'viewer') await negotiate(payload.socketId, 'cam');
+      if (shouldInitiateMain(payload.socketId)) await negotiate(payload.socketId, 'main');
+      if (shouldInitiateCam(payload.socketId)) await negotiate(payload.socketId, 'cam');
       setStatus((payload.displayName || 'Someone') + ' joined the room.');
+      if (!isHost && payload.role === 'host') scheduleMediaSyncRequest('peer-joined');
     });
     socket.on('peer-left', function (payload) {
       setCount(payload.count || 0);
@@ -632,6 +676,8 @@
       if (payload && payload.mediaState && !isHost) {
         setRemoteState(payload.mediaState.screenActive ? 'Receiving' : 'Waiting');
         setCamState(payload.mediaState.camActive ? 'Receiving' : 'Off');
+        if (payload.mediaState.hostId) hostId = payload.mediaState.hostId;
+        if (payload.mediaState.screenActive) scheduleMediaSyncRequest('room-state');
         if (!payload.mediaState.screenActive) {
           remoteScreenStream = new MediaStream();
           if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
@@ -657,6 +703,8 @@
       if (peer.role === 'host' && !isHost) {
         if (payload.screenActive) {
           setRemoteState('Receiving');
+          hostId = payload.from;
+          scheduleMediaSyncRequest('media-state');
         } else {
           remoteScreenStream = new MediaStream();
           if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
@@ -846,6 +894,7 @@
     isSharing = false;
     isCamOn = false;
     viewerFullscreen = false;
+    if (mediaSyncTimer) { clearTimeout(mediaSyncTimer); mediaSyncTimer = null; }
     viewerSideHidden = false;
     clearRemoteDisplay();
     stopScreenShare();

@@ -172,6 +172,21 @@ io.on('connection', (socket) => {
     io.to(to).emit('signal', { from: socket.id, data });
   });
 
+  socket.on('request-media-sync', ({ roomId, targetId, reason }) => {
+    roomId = sanitizeRoomId(roomId);
+    const room = getRoom(roomId);
+    if (!room || !room.hostId) return;
+    if (targetId && socket.id !== targetId) return;
+    if (room.members.some((m) => m.id === socket.id)) {
+      io.to(room.hostId).emit('sync-media-request', {
+        targetId: socket.id,
+        screenActive: !!room.screenActive,
+        camActive: !!room.camActive,
+        reason: reason || 'viewer-requested'
+      });
+    }
+  });
+
   socket.on('media-state', ({ roomId, screenActive, camActive }) => {
     roomId = sanitizeRoomId(roomId);
     const room = getRoom(roomId);
