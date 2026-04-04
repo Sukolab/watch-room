@@ -29,6 +29,8 @@
   var remoteVideoHealthTimer = null;
   var hasTurn = !!(window.WATCH_ROOM_CONFIG && window.WATCH_ROOM_CONFIG.hasTurn);
   var audioResumeHintShown = false;
+  var restartAttempts = {};
+  var restartCooldownMs = 2500;
 
   var peers = new Map();
   var mixedAudioContext = null;
@@ -108,24 +110,41 @@
         safePlay(peer.audioEl);
       }
     });
-    setNetworkHint(hasTurn ? 'Remote audio resumed. If one side still cannot hear, check mic permission on both browsers.' : 'Remote audio resumed. Add TURN env vars for best cross-network reliability.');
+    setNetworkHint(hasTurn ? 'Remote audio resumed. If one side still cannot hear, check mic permission on both browsers.' : 'Remote audio resumed. Direct mode is active. Different networks can take a moment to reconnect.');
   }
   function updateNetworkHint() {
     if (!inRoom) {
-      setNetworkHint(hasTurn ? 'TURN relay is configured. Cross-network calls should be more reliable.' : 'Best cross-network audio/video needs TURN on the server.');
+      setNetworkHint(hasTurn ? 'Relay server is configured. Cross-network calls should be more reliable.' : 'Direct STUN mode is active. No account or paid relay is required, but some networks may need a reconnect.');
       return;
     }
     if (!hasTurn) {
-      setNetworkHint('Room is running without TURN. Same Wi-Fi is not required, but different networks may fail or lose audio/video.');
+      setNetworkHint('Direct STUN mode is active. Same Wi-Fi is not required, but some network pairs may need a quick reconnect or refresh.');
     } else {
-      setNetworkHint('TURN relay is configured. If audio is blocked, tap Resume audio once.');
+      setNetworkHint('Relay server is configured. If audio is blocked, tap Resume audio once.');
     }
   }
+  function tryIceRestart(peerId, kind, reason) {
+    var key = String(peerId || '') + ':' + String(kind || 'main');
+    var now = Date.now();
+    if (restartAttempts[key] && now - restartAttempts[key] < restartCooldownMs) return;
+    restartAttempts[key] = now;
+    var peer = peers.get(peerId);
+    if (!peer) return;
+    var pc = peer.pcs[kind];
+    if (!pc || pc.signalingState === 'closed') return;
+    try { if (pc.restartIce) pc.restartIce(); } catch (e) {}
+    if ((kind === 'main' && shouldInitiateMain(peerId)) || (kind === 'cam' && shouldInitiateCam(peerId))) {
+      setTimeout(function () { negotiate(peerId, kind); }, 120);
+    } else if (!isHost && kind === 'main' && socket && hostId) {
+      socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'ice-restart', preferCodec: forceH264Mode ? 'H264' : 'default' });
+    }
+  }
+
   function maybeWarnConnection(kind, state, peer) {
     if (state !== 'failed' && state !== 'disconnected') return;
     var label = peer ? (peer.displayName || peer.role || 'peer') : 'peer';
     if (!hasTurn) {
-      setStatus('Connection trouble with ' + label + '. Add TURN env vars for better cross-network reliability.');
+      setStatus('Connection dipped with ' + label + '. Trying a direct reconnect.');
       updateNetworkHint();
     } else if (kind === 'main' && peer && peer.role === 'host' && !isHost) {
       setStatus('Reconnecting media from ' + label + '.');
@@ -724,14 +743,16 @@
 
     pc.onconnectionstatechange = function () {
       maybeWarnConnection(kind, pc.connectionState, peer);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
-        if (kind === 'main') {
-          if (peer.role === 'host' && !isHost) setRemoteState('Reconnecting');
-        }
+      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+        if (kind === 'main' && peer.role === 'host' && !isHost) setRemoteState('Reconnecting');
+        tryIceRestart(peerId, kind, 'connection-state');
       }
     };
     pc.oniceconnectionstatechange = function () {
       maybeWarnConnection(kind, pc.iceConnectionState, peer);
+      if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        tryIceRestart(peerId, kind, 'ice-state');
+      }
     };
 
     pc.ontrack = function (event) {
@@ -835,7 +856,7 @@
           sendSignal(from, { kind: kind, description: pc.localDescription });
         }
       } catch (e) {
-        setStatus('Signal sync retrying for ' + getPeerLabel(from) + '.');
+        setStatus('Signal sync retrying for ' + getPeerLabel(from) + '. Trying again.');
         if (description.type === 'offer' && polite) {
           try {
             await refreshPeerTracks(from);

@@ -18,6 +18,9 @@ function baseIceServers() {
   return [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
   ];
 }
 
@@ -61,13 +64,6 @@ async function fetchMeteredIceServers() {
 }
 
 async function resolveIceServers() {
-  if (process.env.METERED_API_KEY) {
-    try {
-      return { iceServers: await fetchMeteredIceServers(), source: 'metered' };
-    } catch (err) {
-      console.error('[TURN] Metered fetch failed, falling back to static TURN config:', err.message);
-    }
-  }
   return { iceServers: buildStaticIceServers(), source: process.env.TURN_URL ? 'static-turn' : 'stun-only' };
 }
 
@@ -90,7 +86,7 @@ app.get('/config.js', async (_req, res) => {
       maxTotal: MAX_TOTAL,
       hasTurn: hasTurnInServers(result.iceServers),
       turnSource: result.source,
-      meteredEnabled: !!process.env.METERED_API_KEY,
+      meteredEnabled: false,
     };
     res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify(payload)};`);
   } catch (err) {
@@ -101,7 +97,7 @@ app.get('/config.js', async (_req, res) => {
       maxTotal: MAX_TOTAL,
       hasTurn: hasTurnInServers(fallback),
       turnSource: 'fallback-error',
-      meteredEnabled: !!process.env.METERED_API_KEY,
+      meteredEnabled: false,
       configError: err && err.message ? err.message : String(err),
     };
     res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify(payload)};`);
