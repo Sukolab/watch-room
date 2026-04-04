@@ -27,6 +27,8 @@
   var browserMeta = detectBrowserMeta();
   var forceH264Mode = false;
   var remoteVideoHealthTimer = null;
+  var hasTurn = !!(window.WATCH_ROOM_CONFIG && window.WATCH_ROOM_CONFIG.hasTurn);
+  var audioResumeHintShown = false;
 
   var peers = new Map();
   var mixedAudioContext = null;
@@ -70,7 +72,9 @@
     peopleStrip: document.getElementById('peopleStrip'),
     chatMessages: document.getElementById('chatMessages'),
     chatInput: document.getElementById('chatInput'),
-    sendChatBtn: document.getElementById('sendChatBtn')
+    sendChatBtn: document.getElementById('sendChatBtn'),
+    resumeAudioBtn: document.getElementById('resumeAudioBtn'),
+    netHint: document.getElementById('netHint')
   };
 
   function sanitizeRoomId(value) {
@@ -86,7 +90,47 @@
   function setRoleText(role) { if (els.roleValue) els.roleValue.textContent = role === 'host' ? 'Host' : 'Viewer'; }
   function setRemoteState(text) { if (els.remoteState) els.remoteState.textContent = text; }
   function setCamState(text) { if (els.camState) els.camState.textContent = text; }
-  function safePlay(media) { if (media && media.play) media.play().catch(function () { }); }
+  function safePlay(media) { if (media && media.play) media.play().catch(function () {
+    if (!audioResumeHintShown && media && (media.tagName === 'AUDIO' || media.tagName === 'VIDEO')) {
+      audioResumeHintShown = true;
+      if (els.netHint) els.netHint.textContent = 'Tap Resume audio if your browser blocks remote sound.';
+    }
+  }); }
+  function setNetworkHint(text) { if (els.netHint) els.netHint.textContent = text; }
+  function resumeAudioPlayback() {
+    try { if (mixedAudioContext && mixedAudioContext.state === 'suspended') mixedAudioContext.resume(); } catch (e) {}
+    if (els.remoteAudio) { els.remoteAudio.muted = false; safePlay(els.remoteAudio); }
+    if (els.remoteVideo) { safePlay(els.remoteVideo); }
+    if (els.camVideo && !isHost) { safePlay(els.camVideo); }
+    peers.forEach(function (peer) {
+      if (peer && peer.audioEl) {
+        try { peer.audioEl.muted = false; peer.audioEl.volume = 1; } catch (e) {}
+        safePlay(peer.audioEl);
+      }
+    });
+    setNetworkHint(hasTurn ? 'Remote audio resumed. If one side still cannot hear, check mic permission on both browsers.' : 'Remote audio resumed. Add TURN env vars for best cross-network reliability.');
+  }
+  function updateNetworkHint() {
+    if (!inRoom) {
+      setNetworkHint(hasTurn ? 'TURN relay is configured. Cross-network calls should be more reliable.' : 'Best cross-network audio/video needs TURN on the server.');
+      return;
+    }
+    if (!hasTurn) {
+      setNetworkHint('Room is running without TURN. Same Wi-Fi is not required, but different networks may fail or lose audio/video.');
+    } else {
+      setNetworkHint('TURN relay is configured. If audio is blocked, tap Resume audio once.');
+    }
+  }
+  function maybeWarnConnection(kind, state, peer) {
+    if (state !== 'failed' && state !== 'disconnected') return;
+    var label = peer ? (peer.displayName || peer.role || 'peer') : 'peer';
+    if (!hasTurn) {
+      setStatus('Connection trouble with ' + label + '. Add TURN env vars for better cross-network reliability.');
+      updateNetworkHint();
+    } else if (kind === 'main' && peer && peer.role === 'host' && !isHost) {
+      setStatus('Reconnecting media from ' + label + '.');
+    }
+  }
   function isProbablyAndroid() { return /Android/i.test(navigator.userAgent || ''); }
   function detectBrowserMeta() {
     var ua = navigator.userAgent || '';
@@ -278,6 +322,8 @@
     audio.autoplay = true;
     audio.playsInline = true;
     audio.hidden = true;
+    audio.muted = false;
+    audio.volume = 1;
     audio.setAttribute('data-peer-audio', peerId);
     document.body.appendChild(audio);
     peer.audioEl = audio;
@@ -316,6 +362,8 @@
     if (els.remoteAudio) {
       els.remoteAudio.autoplay = true;
       els.remoteAudio.playsInline = true;
+      els.remoteAudio.muted = false;
+      els.remoteAudio.volume = 1;
     }
     updateCamPlaceholder();
   }
@@ -675,19 +723,27 @@
     };
 
     pc.onconnectionstatechange = function () {
+      maybeWarnConnection(kind, pc.connectionState, peer);
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
         if (kind === 'main') {
           if (peer.role === 'host' && !isHost) setRemoteState('Reconnecting');
         }
       }
     };
+    pc.oniceconnectionstatechange = function () {
+      maybeWarnConnection(kind, pc.iceConnectionState, peer);
+    };
 
     pc.ontrack = function (event) {
       if (kind === 'main') {
         event.streams[0].getAudioTracks().forEach(function (track) {
           if (!peer.incomingAudio.getTracks().find(function (t) { return t.id === track.id; })) peer.incomingAudio.addTrack(track);
+          track.onunmute = function () { attachIncomingAudio(peerId); resumeAudioPlayback(); };
+          track.onmute = function () { attachIncomingAudio(peerId); };
+          track.onended = function () { attachIncomingAudio(peerId); };
         });
         attachIncomingAudio(peerId);
+        resumeAudioPlayback();
 
         if (peer.role === 'host' && !isHost) {
           event.streams[0].getVideoTracks().forEach(function (track) {
@@ -868,6 +924,7 @@
       setStatus(msg || 'Unable to join room.');
       inRoom = false;
       updateButtons();
+      updateNetworkHint();
     });
     socket.on('joined-room', async function (payload) {
       inRoom = true;
@@ -898,6 +955,7 @@
         ensurePeerRecord(peerMeta.id, { role: peerMeta.role, displayName: peerMeta.displayName, browser: peerMeta.browser || null });
       });
       updateButtons();
+      updateNetworkHint();
       setupRemoteMediaBindings();
       for (var i = 0; i < (payload.peers || []).length; i++) {
         var peerMeta = payload.peers[i];
@@ -989,6 +1047,7 @@
       }
       participants = [];
       renderParticipants();
+      updateNetworkHint();
     });
   }
 
@@ -1039,6 +1098,7 @@
       syncMicState();
       rebuildOutgoingAudioTrack();
       refreshAllPeerTracks();
+      resumeAudioPlayback();
       setStatus(isMicOn ? 'Mic is on.' : 'Mic is off.');
     } catch (e) {
       setStatus('Unable to access microphone.');
@@ -1082,6 +1142,7 @@
       setRemoteState('Live');
       updateButtons();
       if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true, camActive: !!isCamOn });
+      updateNetworkHint();
       setStatus((screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.') + (usingScreenRelay ? ' Compatibility relay mode is on for this host.' : ''));
     } catch (e) {
       setStatus('Screen share was cancelled or blocked.');
@@ -1175,6 +1236,7 @@
     stopCamera();
     stopLocalAudio();
     updateButtons();
+    updateNetworkHint();
   }
 
   function leaveRoom(manual) {
@@ -1226,9 +1288,12 @@
   if (els.camBtn) els.camBtn.onclick = startStopCam;
   if (els.refreshRoomsBtn) els.refreshRoomsBtn.onclick = function () { ensureSocket(); if (socket) socket.emit('get-room-list'); };
   if (els.sendChatBtn) els.sendChatBtn.onclick = sendChat;
+  if (els.resumeAudioBtn) els.resumeAudioBtn.onclick = resumeAudioPlayback;
   if (els.chatInput) els.chatInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
   if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.onclick = toggleViewerFullscreen;
   if (els.toggleSideBtn) els.toggleSideBtn.onclick = toggleViewerSide;
+
+  ['click','touchstart'].forEach(function (evt) { document.addEventListener(evt, function () { if (inRoom) resumeAudioPlayback(); }, { passive: true }); });
 
   document.addEventListener('fullscreenchange', function () {
     if (!document.fullscreenElement && viewerFullscreen) {
@@ -1245,5 +1310,6 @@
   updateButtons();
   renderParticipants();
   renderChat();
+  updateNetworkHint();
   setStatus('Not connected.');
 })();

@@ -34,7 +34,9 @@ function buildIceServers() {
 
 app.get('/config.js', (_req, res) => {
   res.type('application/javascript');
-  res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify({ iceServers: buildIceServers(), maxViewers: MAX_VIEWERS, maxTotal: MAX_TOTAL })};`);
+  const iceServers = buildIceServers();
+  const hasTurn = iceServers.some((entry) => String(entry.urls || '').toLowerCase().includes('turn:') || (Array.isArray(entry.urls) && entry.urls.some((u) => String(u).toLowerCase().includes('turn:'))));
+  res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify({ iceServers, maxViewers: MAX_VIEWERS, maxTotal: MAX_TOTAL, hasTurn })};`);
 });
 
 const rooms = new Map();
