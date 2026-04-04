@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 
+const fetchImpl = typeof fetch === 'function' ? fetch.bind(globalThis) : null;
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
@@ -12,12 +14,22 @@ const MAX_TOTAL = MAX_VIEWERS + 1;
 app.use(express.static(__dirname));
 app.get('/', (_req, res) => res.sendFile(__dirname + '/index.html'));
 
-function buildIceServers() {
-  const servers = [
+function baseIceServers() {
+  return [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
   ];
+}
 
+function hasTurnInServers(iceServers) {
+  return (iceServers || []).some((entry) => {
+    const urls = Array.isArray(entry && entry.urls) ? entry.urls : [entry && entry.urls];
+    return urls.some((u) => String(u || '').toLowerCase().startsWith('turn:') || String(u || '').toLowerCase().startsWith('turns:'));
+  });
+}
+
+function buildStaticIceServers() {
+  const servers = baseIceServers();
   const turnUrls = String(process.env.TURN_URL || '').split(',').map((v) => v.trim()).filter(Boolean);
   const turnUsername = String(process.env.TURN_USERNAME || '').trim();
   const turnCredential = String(process.env.TURN_CREDENTIAL || '').trim();
@@ -32,11 +44,68 @@ function buildIceServers() {
   return servers;
 }
 
-app.get('/config.js', (_req, res) => {
+async function fetchMeteredIceServers() {
+  const apiKey = String(process.env.METERED_API_KEY || '').trim();
+  const subdomain = String(process.env.METERED_SUBDOMAIN || 'miaks').trim() || 'miaks';
+  if (!apiKey || !fetchImpl) return null;
+
+  const url = `https://${subdomain}.metered.live/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`;
+  const response = await fetchImpl(url, { headers: { accept: 'application/json' } });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Metered TURN fetch failed (${response.status}): ${text.slice(0, 200)}`);
+  }
+  const iceServers = await response.json();
+  if (!Array.isArray(iceServers) || !iceServers.length) throw new Error('Metered TURN returned no ICE servers.');
+  return baseIceServers().concat(iceServers);
+}
+
+async function resolveIceServers() {
+  if (process.env.METERED_API_KEY) {
+    try {
+      return { iceServers: await fetchMeteredIceServers(), source: 'metered' };
+    } catch (err) {
+      console.error('[TURN] Metered fetch failed, falling back to static TURN config:', err.message);
+    }
+  }
+  return { iceServers: buildStaticIceServers(), source: process.env.TURN_URL ? 'static-turn' : 'stun-only' };
+}
+
+app.get('/api/turn-credentials', async (_req, res) => {
+  try {
+    const result = await resolveIceServers();
+    res.json({ iceServers: result.iceServers, source: result.source, hasTurn: hasTurnInServers(result.iceServers) });
+  } catch (err) {
+    res.status(500).json({ error: 'TURN credentials error', details: err && err.message ? err.message : String(err) });
+  }
+});
+
+app.get('/config.js', async (_req, res) => {
   res.type('application/javascript');
-  const iceServers = buildIceServers();
-  const hasTurn = iceServers.some((entry) => String(entry.urls || '').toLowerCase().includes('turn:') || (Array.isArray(entry.urls) && entry.urls.some((u) => String(u).toLowerCase().includes('turn:'))));
-  res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify({ iceServers, maxViewers: MAX_VIEWERS, maxTotal: MAX_TOTAL, hasTurn })};`);
+  try {
+    const result = await resolveIceServers();
+    const payload = {
+      iceServers: result.iceServers,
+      maxViewers: MAX_VIEWERS,
+      maxTotal: MAX_TOTAL,
+      hasTurn: hasTurnInServers(result.iceServers),
+      turnSource: result.source,
+      meteredEnabled: !!process.env.METERED_API_KEY,
+    };
+    res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify(payload)};`);
+  } catch (err) {
+    const fallback = buildStaticIceServers();
+    const payload = {
+      iceServers: fallback,
+      maxViewers: MAX_VIEWERS,
+      maxTotal: MAX_TOTAL,
+      hasTurn: hasTurnInServers(fallback),
+      turnSource: 'fallback-error',
+      meteredEnabled: !!process.env.METERED_API_KEY,
+      configError: err && err.message ? err.message : String(err),
+    };
+    res.send(`window.WATCH_ROOM_CONFIG = ${JSON.stringify(payload)};`);
+  }
 });
 
 const rooms = new Map();
