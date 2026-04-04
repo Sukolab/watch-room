@@ -50,7 +50,7 @@ function getRoom(roomId) {
 function ensureRoom(roomId, password = '') {
   let room = getRoom(roomId);
   if (!room) {
-    room = { roomId, password: String(password || ''), members: [], createdAt: Date.now() };
+    room = { roomId, password: String(password || ''), members: [], createdAt: Date.now(), chat: [] };
     rooms.set(roomId, room);
   }
   return room;
@@ -96,11 +96,12 @@ io.on('connection', (socket) => {
     socket.emit('room-list', { rooms: publicRooms() });
   });
 
-  socket.on('join-room', ({ roomId, displayName, requestedRole, password }) => {
+  socket.on('join-room', ({ roomId, displayName, requestedRole, password, browser }) => {
     roomId = sanitizeRoomId(roomId);
     displayName = String(displayName || 'Guest').trim() || 'Guest';
     requestedRole = requestedRole === 'host' ? 'host' : 'viewer';
     password = String(password || '');
+    browser = browser && typeof browser === 'object' ? browser : {};
 
     if (!roomId) return socket.emit('room-error', 'Missing room code.');
 
@@ -127,13 +128,13 @@ io.on('connection', (socket) => {
     socket.data.displayName = displayName;
     socket.data.role = role;
 
-    room.members.push({ id: socket.id, role, displayName });
+    room.members.push({ id: socket.id, role, displayName, browser });
     if (role === 'host') room.hostId = socket.id;
     socket.join(roomId);
 
     const peers = room.members
       .filter((m) => m.id !== socket.id)
-      .map((m) => ({ id: m.id, role: m.role, displayName: m.displayName }));
+      .map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null }));
 
     socket.emit('joined-room', {
       roomId,
@@ -143,7 +144,8 @@ io.on('connection', (socket) => {
       locked: !!room.password,
       maxViewers: MAX_VIEWERS,
       mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null },
-      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
+      chat: room.chat || [],
     });
 
     peers.forEach((peer) => {
@@ -151,13 +153,14 @@ io.on('connection', (socket) => {
         socketId: socket.id,
         displayName,
         role,
+        browser: browser || null,
         count: room.members.length,
       });
     });
 
     emitPeerCount(roomId);
     io.to(roomId).emit('room-state', {
-      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
       mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
     });
     if (room.screenActive || room.camActive) {
@@ -172,7 +175,29 @@ io.on('connection', (socket) => {
     io.to(to).emit('signal', { from: socket.id, data });
   });
 
-  socket.on('request-media-sync', ({ roomId, targetId, reason }) => {
+
+  socket.on('chat-message', ({ roomId, text }) => {
+    roomId = sanitizeRoomId(roomId);
+    const room = getRoom(roomId);
+    if (!room) return;
+    const member = room.members.find((m) => m.id === socket.id);
+    if (!member) return;
+    text = String(text || '').trim().replace(/\s+/g, ' ').slice(0, 500);
+    if (!text) return;
+    const message = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      from: socket.id,
+      name: member.displayName || 'Guest',
+      role: member.role || 'viewer',
+      text,
+      ts: Date.now(),
+    };
+    room.chat.push(message);
+    if (room.chat.length > 100) room.chat = room.chat.slice(-100);
+    io.to(roomId).emit('chat-message', message);
+  });
+
+  socket.on('request-media-sync', ({ roomId, targetId, reason, preferCodec }) => {
     roomId = sanitizeRoomId(roomId);
     const room = getRoom(roomId);
     if (!room || !room.hostId) return;
@@ -182,7 +207,8 @@ io.on('connection', (socket) => {
         targetId: socket.id,
         screenActive: !!room.screenActive,
         camActive: !!room.camActive,
-        reason: reason || 'viewer-requested'
+        reason: reason || 'viewer-requested',
+        preferCodec: typeof preferCodec === 'string' ? preferCodec : 'default'
       });
     }
   });
@@ -201,7 +227,7 @@ io.on('connection', (socket) => {
       camActive: !!camActive,
     });
     io.to(roomId).emit('room-state', {
-      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+      participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
       mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
     });
     emitRoomList();
@@ -229,7 +255,7 @@ io.on('connection', (socket) => {
     } else {
       room.members.forEach((m) => io.to(m.id).emit('peer-left', { socketId: socket.id, count: room.members.length }));
       io.to(roomId).emit('room-state', {
-        participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+        participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
         mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
       });
       emitPeerCount(roomId);
@@ -258,7 +284,7 @@ io.on('connection', (socket) => {
         count: room.members.length,
       }));
       io.to(roomId).emit('room-state', {
-        participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName })),
+        participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
         mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
       });
       emitPeerCount(roomId);

@@ -15,6 +15,11 @@
   var remoteHostName = 'Host';
   var hostId = null;
   var participants = [];
+  var chatMessages = [];
+  var roomHasSafari = false;
+  var browserMeta = detectBrowserMeta();
+  var forceH264Mode = false;
+  var remoteVideoHealthTimer = null;
 
   var peers = new Map();
   var mixedAudioContext = null;
@@ -55,7 +60,10 @@
     camPlaceholder: document.getElementById('camPlaceholder'),
     hostInitials: document.getElementById('hostInitials'),
     hostDisplayName: document.getElementById('hostDisplayName'),
-    peopleStrip: document.getElementById('peopleStrip')
+    peopleStrip: document.getElementById('peopleStrip'),
+    chatMessages: document.getElementById('chatMessages'),
+    chatInput: document.getElementById('chatInput'),
+    sendChatBtn: document.getElementById('sendChatBtn')
   };
 
   function sanitizeRoomId(value) {
@@ -73,6 +81,24 @@
   function setCamState(text) { if (els.camState) els.camState.textContent = text; }
   function safePlay(media) { if (media && media.play) media.play().catch(function () { }); }
   function isProbablyAndroid() { return /Android/i.test(navigator.userAgent || ''); }
+  function detectBrowserMeta() {
+    var ua = navigator.userAgent || '';
+    var vendor = navigator.vendor || '';
+    var isIOS = /iPad|iPhone|iPod/i.test(ua);
+    var isAndroid = /Android/i.test(ua);
+    var isEdge = /Edg\//i.test(ua);
+    var isBrave = !!(navigator.brave && navigator.brave.isBrave);
+    var isFirefox = /Firefox\//i.test(ua);
+    var isSafari = !isEdge && !isBrave && !/Chrome\//i.test(ua) && /Safari\//i.test(ua) && /Apple/i.test(vendor);
+    var isChrome = !isEdge && !isBrave && /Chrome\//i.test(ua);
+    return {
+      ua: ua,
+      engine: isSafari ? 'safari' : isBrave ? 'brave' : isEdge ? 'edge' : isFirefox ? 'firefox' : isChrome ? 'chrome' : 'unknown',
+      mobile: !!(isIOS || isAndroid),
+      ios: !!isIOS,
+      android: !!isAndroid
+    };
+  }
 
   function nameToInitials(name) {
     var parts = String(name || 'Host').trim().split(/\s+/).filter(Boolean).slice(0, 2);
@@ -118,24 +144,62 @@
     if (!meta || !meta.id) return;
     var found = false;
     participants = participants.map(function (p) {
-      if (p.id === meta.id) { found = true; return { id: meta.id, role: meta.role || p.role || 'viewer', displayName: meta.displayName || p.displayName || 'Guest' }; }
+      if (p.id === meta.id) { found = true; return { id: meta.id, role: meta.role || p.role || 'viewer', displayName: meta.displayName || p.displayName || 'Guest', browser: meta.browser || p.browser || null }; }
       return p;
     });
-    if (!found) participants.push({ id: meta.id, role: meta.role || 'viewer', displayName: meta.displayName || 'Guest' });
+    if (!found) participants.push({ id: meta.id, role: meta.role || 'viewer', displayName: meta.displayName || 'Guest', browser: meta.browser || null });
+    updateRoomBrowserFlags();
     renderParticipants();
   }
   function removeParticipant(id) {
     participants = participants.filter(function (p) { return p.id !== id; });
+    updateRoomBrowserFlags();
     renderParticipants();
   }
   function setParticipants(list) {
-    participants = (list || []).filter(Boolean).map(function (p) { return { id: p.id, role: p.role || 'viewer', displayName: p.displayName || 'Guest' }; });
+    participants = (list || []).filter(Boolean).map(function (p) { return { id: p.id, role: p.role || 'viewer', displayName: p.displayName || 'Guest', browser: p.browser || null }; });
     var host = participants.find(function (p) { return p.role === 'host'; });
     if (host && (!isHost || (socket && host.id !== socket.id))) {
       hostId = host.id;
       updateHostIdentity(host.displayName);
     }
     renderParticipants();
+  }
+
+  function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function (ch) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] || ch;
+    });
+  }
+  function renderChat() {
+    if (!els.chatMessages) return;
+    if (!chatMessages.length) {
+      els.chatMessages.innerHTML = '<div style="color:var(--muted);font-size:13px">No messages yet.</div>';
+      return;
+    }
+    els.chatMessages.innerHTML = chatMessages.map(function (m) {
+      var mine = socket && m.from === socket.id;
+      var who = mine ? 'You' : (m.name || 'Guest');
+      var role = m.role === 'host' ? 'host' : 'viewer';
+      return '<div class="chat-item' + (mine ? ' me' : '') + '"><div class="chat-meta">' + escapeHtml(who) + ' <span>• ' + role + '</span></div><div class="chat-text">' + escapeHtml(m.text) + '</div></div>';
+    }).join('');
+    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+  }
+  function setChatMessages(list) {
+    chatMessages = Array.isArray(list) ? list.slice(-100) : [];
+    renderChat();
+  }
+  function pushChatMessage(message) {
+    if (!message) return;
+    chatMessages.push(message);
+    if (chatMessages.length > 100) chatMessages = chatMessages.slice(-100);
+    renderChat();
+  }
+  function sendChat() {
+    var text = String(els.chatInput && els.chatInput.value || '').trim();
+    if (!inRoom || !socket || !text) return;
+    socket.emit('chat-message', { roomId: roomId, text: text });
+    if (els.chatInput) els.chatInput.value = '';
   }
 
   function syncViewerFullscreenUi() {
@@ -399,6 +463,8 @@
       syncMicState();
     }
     if (els.leaveBtn) els.leaveBtn.disabled = !inRoom;
+    if (els.sendChatBtn) els.sendChatBtn.disabled = !inRoom;
+    if (els.chatInput) els.chatInput.disabled = !inRoom;
     setRoleText(joinedRole);
     syncViewerFullscreenUi();
     updateCamPlaceholder();
@@ -407,6 +473,89 @@
   function sendSignal(to, data) {
     if (!socket || !to) return;
     socket.emit('signal', { to: to, data: data });
+  }
+
+  function isSafariMeta(meta) {
+    return !!(meta && meta.engine === 'safari');
+  }
+  function updateRoomBrowserFlags() {
+    roomHasSafari = isSafariMeta(browserMeta) || participants.some(function (p) { return isSafariMeta(p.browser); });
+    forceH264Mode = roomHasSafari;
+  }
+  function findVideoPayloadsByCodec(sdp, codecName) {
+    var lines = String(sdp || '').split(/\r?\n/);
+    var payloads = [];
+    var rtxByApt = {};
+    lines.forEach(function (line) {
+      var m = line.match(/^a=rtpmap:(\d+)\s+([^/]+)/i);
+      if (m && m[2].toUpperCase() === String(codecName || '').toUpperCase()) payloads.push(m[1]);
+    });
+    lines.forEach(function (line) {
+      var fm = line.match(/^a=fmtp:(\d+)\s+(.+)$/i);
+      if (!fm) return;
+      var apt = fm[2].match(/apt=(\d+)/i);
+      if (apt) rtxByApt[apt[1]] = fm[1];
+    });
+    var out = [];
+    payloads.forEach(function (pt) {
+      out.push(pt);
+      if (rtxByApt[pt]) out.push(rtxByApt[pt]);
+    });
+    return out;
+  }
+  function reprioritizeVideoCodecInSdp(sdp, codecName) {
+    if (!sdp) return sdp;
+    var preferred = findVideoPayloadsByCodec(sdp, codecName);
+    if (!preferred.length) return sdp;
+    return String(sdp).split(/\r?\n/).map(function (line) {
+      if (line.indexOf('m=video ') !== 0) return line;
+      var parts = line.trim().split(/\s+/);
+      if (parts.length <= 3) return line;
+      var header = parts.slice(0, 3);
+      var payloads = parts.slice(3);
+      var ordered = preferred.filter(function (pt) { return payloads.indexOf(pt) >= 0; })
+        .concat(payloads.filter(function (pt) { return preferred.indexOf(pt) < 0; }));
+      return header.concat(ordered).join(' ');
+    }).join('\r\n');
+  }
+  function maybePreferVideoCodec(description) {
+    if (!description || !description.sdp) return description;
+    var codec = forceH264Mode ? 'H264' : 'VP8';
+    return { type: description.type, sdp: reprioritizeVideoCodecInSdp(description.sdp, codec) };
+  }
+  async function tuneSenderParameters(sender, kind) {
+    if (!sender || !sender.getParameters || !sender.setParameters) return;
+    try {
+      var params = sender.getParameters() || {};
+      params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
+      var mobileRoom = browserMeta.mobile || participants.some(function (p) { return p.browser && p.browser.mobile; });
+      if (kind === 'screenVideo') {
+        params.encodings[0].maxBitrate = mobileRoom ? 900000 : 1800000;
+        params.encodings[0].maxFramerate = mobileRoom ? 20 : 30;
+        params.degradationPreference = 'maintain-resolution';
+      } else if (kind === 'camVideo') {
+        params.encodings[0].maxBitrate = mobileRoom ? 350000 : 700000;
+        params.encodings[0].maxFramerate = mobileRoom ? 15 : 24;
+        params.degradationPreference = 'balanced';
+      } else if (kind === 'audio') {
+        params.encodings[0].maxBitrate = 64000;
+      }
+      await sender.setParameters(params);
+    } catch (e) {}
+  }
+  function scheduleRemoteVideoHealthCheck(reason) {
+    if (remoteVideoHealthTimer) clearTimeout(remoteVideoHealthTimer);
+    if (isHost) return;
+    remoteVideoHealthTimer = setTimeout(function () {
+      var video = els.remoteVideo;
+      var hasTrack = !!(remoteScreenStream && remoteScreenStream.getVideoTracks && remoteScreenStream.getVideoTracks().length);
+      var looksDead = !video || !hasTrack || video.readyState < 2 || !video.videoWidth;
+      if (inRoom && hostId && looksDead && socket) {
+        forceH264Mode = true;
+        socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'video-health', preferCodec: 'H264' });
+        setRemoteState('Receiving');
+      }
+    }, 2500);
   }
 
   function createPc(peerId, kind) {
@@ -447,6 +596,7 @@
             if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
             setRemoteState('Live');
             safePlay(els.remoteVideo);
+            scheduleRemoteVideoHealthCheck('ontrack');
           });
         }
       } else if (kind === 'cam' && peer.role === 'host' && !isHost) {
@@ -465,17 +615,20 @@
       var outgoingAudio = getOutgoingAudioTrack();
       if (outgoingAudio) {
         peer.senders.mainAudio = pc.addTrack(outgoingAudio, mixedAudioDestination ? mixedAudioDestination.stream : new MediaStream([outgoingAudio]));
+        tuneSenderParameters(peer.senders.mainAudio, 'audio');
       } else {
         var silentTrack = createSilentAudioTrack();
         if (silentTrack) peer.senders.mainAudio = pc.addTrack(silentTrack, new MediaStream([silentTrack]));
       }
       if (isHostRelation(peer) && isHost && screenStream && screenStream.getVideoTracks().length) {
         peer.senders.mainVideo = pc.addTrack(screenStream.getVideoTracks()[0], screenStream);
+        tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       }
     }
 
     if (kind === 'cam' && shouldHaveCamPc(peer) && isHost && camStream && camStream.getVideoTracks().length) {
       peer.senders.camVideo = pc.addTrack(camStream.getVideoTracks()[0], camStream);
+      tuneSenderParameters(peer.senders.camVideo, 'camVideo');
     }
 
     return pc;
@@ -487,7 +640,7 @@
     if (!pc || pc.signalingState === 'closed') return;
     try {
       peer.makingOffer[kind] = true;
-      var offer = await pc.createOffer();
+      var offer = maybePreferVideoCodec(await pc.createOffer());
       if (pc.signalingState !== 'stable') return;
       await pc.setLocalDescription(offer);
       sendSignal(peerId, { kind: kind, description: pc.localDescription });
@@ -523,7 +676,7 @@
         }
         if (description.type === 'offer') {
           await refreshPeerTracks(from);
-          await pc.setLocalDescription(await pc.createAnswer());
+          await pc.setLocalDescription(maybePreferVideoCodec(await pc.createAnswer()));
           sendSignal(from, { kind: kind, description: pc.localDescription });
         }
       } catch (e) {
@@ -553,16 +706,20 @@
     var outgoingAudio = getOutgoingAudioTrack();
     if (peer.senders.mainAudio) {
       try { await peer.senders.mainAudio.replaceTrack(outgoingAudio || null); } catch (e) {}
+      await tuneSenderParameters(peer.senders.mainAudio, 'audio');
     } else if (outgoingAudio) {
       peer.senders.mainAudio = mainPc.addTrack(outgoingAudio, mixedAudioDestination ? mixedAudioDestination.stream : new MediaStream([outgoingAudio]));
+      await tuneSenderParameters(peer.senders.mainAudio, 'audio');
     }
 
     if (isHost && peer.role === 'viewer') {
       var screenTrack = screenStream && screenStream.getVideoTracks()[0] ? screenStream.getVideoTracks()[0] : null;
       if (peer.senders.mainVideo) {
         try { await peer.senders.mainVideo.replaceTrack(screenTrack || null); } catch (e) {}
+        await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       } else if (screenTrack) {
         peer.senders.mainVideo = mainPc.addTrack(screenTrack, screenStream);
+        await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       }
       if (!screenTrack && peer.senders.mainVideo) { try { await peer.senders.mainVideo.replaceTrack(null); } catch (e) {} }
 
@@ -570,8 +727,10 @@
       var camTrack = camStream && camStream.getVideoTracks()[0] ? camStream.getVideoTracks()[0] : null;
       if (peer.senders.camVideo) {
         try { await peer.senders.camVideo.replaceTrack(camTrack || null); } catch (e) {}
+        await tuneSenderParameters(peer.senders.camVideo, 'camVideo');
       } else if (camTrack) {
         peer.senders.camVideo = camPc.addTrack(camTrack, camStream);
+        await tuneSenderParameters(peer.senders.camVideo, 'camVideo');
       }
       if (!camTrack && peer.senders.camVideo) { try { await peer.senders.camVideo.replaceTrack(null); } catch (e) {} }
     }
@@ -590,7 +749,7 @@
     mediaSyncTimer = setTimeout(function () {
       var hasRemoteScreen = !!(remoteScreenStream && remoteScreenStream.getVideoTracks && remoteScreenStream.getVideoTracks().length);
       if (!hasRemoteScreen && inRoom && hostId) {
-        socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'retry' });
+        socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'retry', preferCodec: forceH264Mode ? 'H264' : 'default' });
         setRemoteState('Receiving');
       }
     }, 1800);
@@ -621,6 +780,7 @@
       if (els.roomInput) els.roomInput.value = roomId;
       if (els.deviceMode) els.deviceMode.value = joinedRole;
       setParticipants((payload.participants || []).filter(function (p) { return !socket || p.id !== socket.id; }));
+      setChatMessages(payload.chat || []);
       if (isHost) {
         hostId = socket.id;
         updateHostIdentity(String(els.nameInput && els.nameInput.value || 'Host'));
@@ -635,7 +795,7 @@
         setCamState(payload.mediaState && payload.mediaState.camActive ? 'Receiving' : 'Off');
       }
       (payload.peers || []).forEach(function (peerMeta) {
-        ensurePeerRecord(peerMeta.id, { role: peerMeta.role, displayName: peerMeta.displayName });
+        ensurePeerRecord(peerMeta.id, { role: peerMeta.role, displayName: peerMeta.displayName, browser: peerMeta.browser || null });
       });
       updateButtons();
       setupRemoteMediaBindings();
@@ -651,8 +811,8 @@
     });
     socket.on('peer-joined', async function (payload) {
       setCount(payload.count || 0);
-      ensurePeerRecord(payload.socketId, { role: payload.role, displayName: payload.displayName });
-      upsertParticipant({ id: payload.socketId, role: payload.role, displayName: payload.displayName });
+      ensurePeerRecord(payload.socketId, { role: payload.role, displayName: payload.displayName, browser: payload.browser || null });
+      upsertParticipant({ id: payload.socketId, role: payload.role, displayName: payload.displayName, browser: payload.browser || null });
       if (payload.role === 'host') {
         hostId = payload.socketId;
         updateHostIdentity(payload.displayName);
@@ -677,7 +837,7 @@
         setRemoteState(payload.mediaState.screenActive ? 'Receiving' : 'Waiting');
         setCamState(payload.mediaState.camActive ? 'Receiving' : 'Off');
         if (payload.mediaState.hostId) hostId = payload.mediaState.hostId;
-        if (payload.mediaState.screenActive) scheduleMediaSyncRequest('room-state');
+        if (payload.mediaState.screenActive) { scheduleMediaSyncRequest('room-state'); scheduleRemoteVideoHealthCheck('room-state'); }
         if (!payload.mediaState.screenActive) {
           remoteScreenStream = new MediaStream();
           if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
@@ -692,12 +852,14 @@
     });
     socket.on('sync-media-request', async function (payload) {
       if (!isHost || !payload || !payload.targetId) return;
+      if (payload.preferCodec === 'H264') forceH264Mode = true;
       await refreshPeerTracks(payload.targetId);
       await negotiate(payload.targetId, 'main');
       if ((payload.camActive || isCamOn) && peers.get(payload.targetId) && peers.get(payload.targetId).role === 'viewer') {
         await negotiate(payload.targetId, 'cam');
       }
     });
+    socket.on('chat-message', function (message) { pushChatMessage(message); });
     socket.on('media-state', function (payload) {
       var peer = ensurePeerRecord(payload.from);
       if (peer.role === 'host' && !isHost) {
@@ -705,6 +867,7 @@
           setRemoteState('Receiving');
           hostId = payload.from;
           scheduleMediaSyncRequest('media-state');
+          scheduleRemoteVideoHealthCheck('media-state');
         } else {
           remoteScreenStream = new MediaStream();
           if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
@@ -757,11 +920,11 @@
 
     ensureSocket();
     if (socket.connected) {
-      socket.emit('join-room', { roomId: nextRoomId, displayName: displayName, requestedRole: requestedRole, password: password });
+      socket.emit('join-room', { roomId: nextRoomId, displayName: displayName, requestedRole: requestedRole, password: password, browser: browserMeta });
       socket.emit('get-room-list');
     } else {
       socket.once('connect', function () {
-        socket.emit('join-room', { roomId: nextRoomId, displayName: displayName, requestedRole: requestedRole, password: password });
+        socket.emit('join-room', { roomId: nextRoomId, displayName: displayName, requestedRole: requestedRole, password: password, browser: browserMeta });
         socket.emit('get-room-list');
       });
     }
@@ -793,7 +956,7 @@
       return;
     }
     try {
-      var constraints = { video: true, audio: true };
+      var constraints = { video: { frameRate: 24, width: { max: browserMeta.mobile ? 960 : 1280 }, height: { max: browserMeta.mobile ? 540 : 720 } }, audio: true };
       screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       var videoTrack = screenStream.getVideoTracks()[0] || null;
       if (!videoTrack) {
@@ -896,6 +1059,8 @@
     viewerFullscreen = false;
     if (mediaSyncTimer) { clearTimeout(mediaSyncTimer); mediaSyncTimer = null; }
     viewerSideHidden = false;
+    chatMessages = [];
+    renderChat();
     clearRemoteDisplay();
     stopScreenShare();
     stopCamera();
@@ -951,6 +1116,8 @@
   if (els.shareBtn) els.shareBtn.onclick = startStopShare;
   if (els.camBtn) els.camBtn.onclick = startStopCam;
   if (els.refreshRoomsBtn) els.refreshRoomsBtn.onclick = function () { ensureSocket(); if (socket) socket.emit('get-room-list'); };
+  if (els.sendChatBtn) els.sendChatBtn.onclick = sendChat;
+  if (els.chatInput) els.chatInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
   if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.onclick = toggleViewerFullscreen;
   if (els.toggleSideBtn) els.toggleSideBtn.onclick = toggleViewerSide;
 
@@ -968,5 +1135,6 @@
   if (els.roomInput && !els.roomInput.value) els.roomInput.value = shortCode();
   updateButtons();
   renderParticipants();
+  renderChat();
   setStatus('Not connected.');
 })();
