@@ -273,7 +273,6 @@ io.on('connection', (socket) => {
       io.to(room.hostId).emit('sync-media-request', {
         targetId: socket.id,
         screenActive: !!room.screenActive,
-        camActive: !!room.camActive,
         reason: reason || 'viewer-requested',
         preferCodec: typeof preferCodec === 'string' ? preferCodec : 'default'
       });
@@ -290,7 +289,6 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('media-state', {
       from: socket.id,
       screenActive: !!screenActive,
-      camActive: !!camActive,
     });
     io.to(roomId).emit('room-state', {
       participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
@@ -359,3 +357,12 @@ io.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => console.log('Watch Room multi-viewer running on port ' + PORT));
+
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection:', err);
+});

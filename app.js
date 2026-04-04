@@ -1039,7 +1039,6 @@
     }
     if (isSharing) {
       stopScreenShare();
-    cleanupScreenRelay();
       return;
     }
     try {
