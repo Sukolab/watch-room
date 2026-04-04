@@ -103,7 +103,7 @@
     try { if (mixedAudioContext && mixedAudioContext.state === 'suspended') mixedAudioContext.resume(); } catch (e) {}
     if (els.remoteAudio) { els.remoteAudio.muted = false; safePlay(els.remoteAudio); }
     if (els.remoteVideo) { safePlay(els.remoteVideo); }
-    if (els.camVideo && !isHost) { safePlay(els.camVideo); }
+
     peers.forEach(function (peer) {
       if (peer && peer.audioEl) {
         try { peer.audioEl.muted = false; peer.audioEl.volume = 1; } catch (e) {}
@@ -180,12 +180,7 @@
     if (els.hostDisplayName) els.hostDisplayName.textContent = remoteHostName;
     if (els.hostInitials) els.hostInitials.textContent = nameToInitials(remoteHostName);
   }
-  function updateCamPlaceholder() {
-    if (!els.camPlaceholder) return;
-    var show = !isHost && !isCamOn;
-    els.camPlaceholder.classList.toggle('show', !!show);
-    if (els.camVideo) els.camVideo.style.display = show ? 'none' : 'block';
-  }
+  function updateCamPlaceholder() { return; }
 
   function participantRoleText(role, me) {
     if (me) return role === 'host' ? 'You • host' : 'You';
@@ -275,9 +270,9 @@
   function syncViewerFullscreenUi() {
     var viewerMode = inRoom && !isHost;
     if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.hidden = !viewerMode;
-    if (els.toggleSideBtn) els.toggleSideBtn.hidden = !viewerMode || !viewerFullscreen;
+    if (els.toggleSideBtn) els.toggleSideBtn.hidden = true;
     if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.textContent = viewerFullscreen ? 'Exit fullscreen' : 'Fullscreen';
-    if (els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show people' : 'Hide people';
+
     document.body.classList.toggle('viewer-fullscreen', viewerMode && viewerFullscreen);
     document.body.classList.toggle('side-hidden', viewerMode && viewerFullscreen && viewerSideHidden);
   }
@@ -295,13 +290,9 @@
       }
     } catch (e) {}
     safePlay(els.remoteVideo);
-    safePlay(els.camVideo);
+
   }
-  function toggleViewerSide() {
-    if (isHost || !inRoom || !viewerFullscreen) return;
-    viewerSideHidden = !viewerSideHidden;
-    syncViewerFullscreenUi();
-  }
+  function toggleViewerSide() { return; }
 
   function supportsDisplayMedia() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
@@ -396,9 +387,7 @@
     return !!peer && (peer.role === 'host' || isHost);
   }
 
-  function shouldHaveCamPc(peer) {
-    return !!peer && isHostRelation(peer);
-  }
+  function shouldHaveCamPc(peer) { return false; }
 
   function shouldInitiateMain(peerId) {
     var peer = peers.get(peerId);
@@ -408,10 +397,7 @@
     return String(socket.id) < String(peerId);
   }
 
-  function shouldInitiateCam(peerId) {
-    var peer = peers.get(peerId);
-    return !!(isHost && peer && peer.role === 'viewer');
-  }
+  function shouldInitiateCam(peerId) { return false; }
 
   function ensurePeerRecord(peerId, meta) {
     var peer = peers.get(peerId);
@@ -782,7 +768,7 @@
           isCamOn = true;
           setCamState('Live');
           updateCamPlaceholder();
-          safePlay(els.camVideo);
+      
         });
       }
     };
@@ -1162,7 +1148,7 @@
       peers.forEach(function (peer, peerId) { if (peer.role === 'viewer') negotiate(peerId, 'main'); });
       setRemoteState('Live');
       updateButtons();
-      if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true, camActive: !!isCamOn });
+      if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true, camActive: false });
       updateNetworkHint();
       setStatus((screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.') + (usingScreenRelay ? ' Compatibility relay mode is on for this host.' : ''));
     } catch (e) {
@@ -1186,7 +1172,7 @@
     }
     setRemoteState(isHost ? 'Not sharing' : 'Waiting');
     updateButtons();
-    if (socket) socket.emit('media-state', { roomId: roomId, screenActive: false, camActive: !!isCamOn });
+    if (socket) socket.emit('media-state', { roomId: roomId, screenActive: false, camActive: false });
   }
 
   async function startStopCam() {
@@ -1201,7 +1187,7 @@
       if (els.camVideo) {
         els.camVideo.srcObject = camStream;
         els.camVideo.muted = true;
-        safePlay(els.camVideo);
+    
       }
       var track = camStream.getVideoTracks()[0];
       if (track) track.onended = stopCamera;
@@ -1306,7 +1292,6 @@
   if (els.leaveBtn) els.leaveBtn.onclick = function () { leaveRoom(true); setStatus('Left room.'); };
   if (els.micBtn) els.micBtn.onclick = startStopMic;
   if (els.shareBtn) els.shareBtn.onclick = startStopShare;
-  if (els.camBtn) els.camBtn.onclick = startStopCam;
   if (els.refreshRoomsBtn) els.refreshRoomsBtn.onclick = function () { ensureSocket(); if (socket) socket.emit('get-room-list'); };
   if (els.sendChatBtn) els.sendChatBtn.onclick = sendChat;
   if (els.resumeAudioBtn) els.resumeAudioBtn.onclick = resumeAudioPlayback;
