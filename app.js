@@ -11,6 +11,13 @@
   var viewerSideHidden = false;
   var localAudioStream = null;
   var screenStream = null;
+  var outboundScreenStream = null;
+  var relayCanvas = null;
+  var relayCanvasStream = null;
+  var relayVideoEl = null;
+  var relayDrawTimer = null;
+  var relayAnimationHandle = null;
+  var usingScreenRelay = false;
   var camStream = null;
   var remoteHostName = 'Host';
   var hostId = null;
@@ -475,6 +482,98 @@
     socket.emit('signal', { to: to, data: data });
   }
 
+
+  function isDesktopChromium(meta) {
+    var engine = meta && meta.engine;
+    return !meta.mobile && (engine === 'chrome' || engine === 'edge' || engine === 'brave');
+  }
+
+  function shouldUseScreenRelay() {
+    return !!(screenStream && isDesktopChromium(browserMeta));
+  }
+
+  function cleanupScreenRelay() {
+    if (relayDrawTimer) { clearInterval(relayDrawTimer); relayDrawTimer = null; }
+    if (relayAnimationHandle && window.cancelAnimationFrame) {
+      try { cancelAnimationFrame(relayAnimationHandle); } catch (e) {}
+      relayAnimationHandle = null;
+    }
+    if (relayCanvasStream) {
+      relayCanvasStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+    }
+    relayCanvasStream = null;
+    outboundScreenStream = null;
+    usingScreenRelay = false;
+    if (relayVideoEl) {
+      try { relayVideoEl.pause(); } catch (e) {}
+      relayVideoEl.srcObject = null;
+      if (relayVideoEl.parentNode) relayVideoEl.parentNode.removeChild(relayVideoEl);
+    }
+    relayVideoEl = null;
+    if (relayCanvas && relayCanvas.parentNode) relayCanvas.parentNode.removeChild(relayCanvas);
+    relayCanvas = null;
+  }
+
+  function getOutgoingScreenStream() {
+    return outboundScreenStream || screenStream || null;
+  }
+
+  function getOutgoingScreenTrack() {
+    var stream = getOutgoingScreenStream();
+    return stream && stream.getVideoTracks()[0] ? stream.getVideoTracks()[0] : null;
+  }
+
+  async function buildScreenRelayStream() {
+    cleanupScreenRelay();
+    if (!screenStream) return null;
+    var track = screenStream.getVideoTracks()[0];
+    if (!track) return screenStream;
+    var settings = track.getSettings ? track.getSettings() : {};
+    var width = Math.min(settings.width || 1280, browserMeta.mobile ? 960 : 1280);
+    var height = Math.min(settings.height || 720, browserMeta.mobile ? 540 : 720);
+    var fps = Math.min(20, settings.frameRate || 20);
+    relayVideoEl = document.createElement('video');
+    relayVideoEl.autoplay = true;
+    relayVideoEl.muted = true;
+    relayVideoEl.playsInline = true;
+    relayVideoEl.style.cssText = 'position:fixed;left:-99999px;top:-99999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+    relayVideoEl.srcObject = screenStream;
+    document.body.appendChild(relayVideoEl);
+    try { await relayVideoEl.play(); } catch (e) {}
+
+    relayCanvas = document.createElement('canvas');
+    relayCanvas.width = Math.max(2, width);
+    relayCanvas.height = Math.max(2, height);
+    relayCanvas.style.cssText = 'position:fixed;left:-99999px;top:-99999px;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(relayCanvas);
+    var ctx = relayCanvas.getContext('2d', { alpha: false, desynchronized: true });
+    if (!ctx || !relayCanvas.captureStream) {
+      cleanupScreenRelay();
+      return screenStream;
+    }
+    var drawFrame = function () {
+      if (!relayCanvas || !relayVideoEl) return;
+      try {
+        if (relayVideoEl.readyState >= 2 && relayVideoEl.videoWidth && relayVideoEl.videoHeight) {
+          if (relayCanvas.width !== relayVideoEl.videoWidth || relayCanvas.height !== relayVideoEl.videoHeight) {
+            relayCanvas.width = relayVideoEl.videoWidth;
+            relayCanvas.height = relayVideoEl.videoHeight;
+          }
+          ctx.drawImage(relayVideoEl, 0, 0, relayCanvas.width, relayCanvas.height);
+        }
+      } catch (e) {}
+    };
+    drawFrame();
+    relayCanvasStream = relayCanvas.captureStream(fps);
+    outboundScreenStream = relayCanvasStream;
+    usingScreenRelay = true;
+    if (track.contentHint) {
+      try { relayCanvasStream.getVideoTracks()[0].contentHint = 'detail'; } catch (e) {}
+    }
+    relayDrawTimer = setInterval(drawFrame, Math.max(30, Math.round(1000 / fps)));
+    return outboundScreenStream;
+  }
+
   function isSafariMeta(meta) {
     return !!(meta && meta.engine === 'safari');
   }
@@ -713,12 +812,13 @@
     }
 
     if (isHost && peer.role === 'viewer') {
-      var screenTrack = screenStream && screenStream.getVideoTracks()[0] ? screenStream.getVideoTracks()[0] : null;
+      var outgoingScreenStream = getOutgoingScreenStream();
+      var screenTrack = getOutgoingScreenTrack();
       if (peer.senders.mainVideo) {
         try { await peer.senders.mainVideo.replaceTrack(screenTrack || null); } catch (e) {}
         await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       } else if (screenTrack) {
-        peer.senders.mainVideo = mainPc.addTrack(screenTrack, screenStream);
+        peer.senders.mainVideo = mainPc.addTrack(screenTrack, outgoingScreenStream || new MediaStream([screenTrack]));
         await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       }
       if (!screenTrack && peer.senders.mainVideo) { try { await peer.senders.mainVideo.replaceTrack(null); } catch (e) {} }
@@ -953,10 +1053,11 @@
     }
     if (isSharing) {
       stopScreenShare();
+    cleanupScreenRelay();
       return;
     }
     try {
-      var constraints = { video: { frameRate: 24, width: { max: browserMeta.mobile ? 960 : 1280 }, height: { max: browserMeta.mobile ? 540 : 720 } }, audio: true };
+      var constraints = { video: { frameRate: 20, width: { max: browserMeta.mobile ? 960 : 1280 }, height: { max: browserMeta.mobile ? 540 : 720 } }, audio: true };
       screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       var videoTrack = screenStream.getVideoTracks()[0] || null;
       if (!videoTrack) {
@@ -970,23 +1071,30 @@
         safePlay(els.remoteVideo);
       }
       videoTrack.onended = stopScreenShare;
+      if (shouldUseScreenRelay()) {
+        try { await buildScreenRelayStream(); } catch (e) { cleanupScreenRelay(); outboundScreenStream = screenStream; }
+      } else {
+        outboundScreenStream = screenStream;
+      }
       rebuildOutgoingAudioTrack();
       refreshAllPeerTracks();
       peers.forEach(function (peer, peerId) { if (peer.role === 'viewer') negotiate(peerId, 'main'); });
       setRemoteState('Live');
       updateButtons();
       if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true, camActive: !!isCamOn });
-      setStatus(screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.');
+      setStatus((screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.') + (usingScreenRelay ? ' Compatibility relay mode is on for this host.' : ''));
     } catch (e) {
       setStatus('Screen share was cancelled or blocked.');
     }
   }
 
   function stopScreenShare() {
+    cleanupScreenRelay();
     if (screenStream) {
       screenStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
     }
     screenStream = null;
+    outboundScreenStream = null;
     isSharing = false;
     rebuildOutgoingAudioTrack();
     refreshAllPeerTracks();
@@ -1063,6 +1171,7 @@
     renderChat();
     clearRemoteDisplay();
     stopScreenShare();
+    cleanupScreenRelay();
     stopCamera();
     stopLocalAudio();
     updateButtons();
