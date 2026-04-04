@@ -20,7 +20,6 @@
   var browserMeta = detectBrowserMeta();
   var forceH264Mode = false;
   var remoteVideoHealthTimer = null;
-  var blackFrameCheckTimer = null;
 
   var peers = new Map();
   var mixedAudioContext = null;
@@ -312,14 +311,6 @@
       els.remoteAudio.playsInline = true;
     }
     updateCamPlaceholder();
-    if (els.remoteVideo && !els.remoteVideo.__watchBound) {
-      els.remoteVideo.__watchBound = true;
-      ['loadeddata','playing','resize'].forEach(function (ev) {
-        els.remoteVideo.addEventListener(ev, function () {
-          if (!isHost && remoteScreenStream && remoteScreenStream.getVideoTracks().length) setRemoteState('Live');
-        });
-      });
-    }
   }
 
   function getPeerLabel(peerId) {
@@ -529,7 +520,8 @@
   }
   function maybePreferVideoCodec(description) {
     if (!description || !description.sdp) return description;
-    return { type: description.type, sdp: reprioritizeVideoCodecInSdp(description.sdp, getPreferredVideoCodec()) };
+    var codec = forceH264Mode ? 'H264' : 'VP8';
+    return { type: description.type, sdp: reprioritizeVideoCodecInSdp(description.sdp, codec) };
   }
   async function tuneSenderParameters(sender, kind) {
     if (!sender || !sender.getParameters || !sender.setParameters) return;
@@ -538,14 +530,12 @@
       params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
       var mobileRoom = browserMeta.mobile || participants.some(function (p) { return p.browser && p.browser.mobile; });
       if (kind === 'screenVideo') {
-        var profile = getAdaptiveShareProfile();
-        params.encodings[0].maxBitrate = profile.bitrate;
-        params.encodings[0].maxFramerate = profile.frameRate;
-        if (mobileRoom || roomHasSafari || forceH264Mode) params.encodings[0].scaleResolutionDownBy = 1.25;
-        params.degradationPreference = mobileRoom ? 'balanced' : 'maintain-resolution';
+        params.encodings[0].maxBitrate = mobileRoom ? 900000 : 1800000;
+        params.encodings[0].maxFramerate = mobileRoom ? 20 : 30;
+        params.degradationPreference = 'maintain-resolution';
       } else if (kind === 'camVideo') {
-        params.encodings[0].maxBitrate = mobileRoom ? 300000 : 650000;
-        params.encodings[0].maxFramerate = mobileRoom ? 12 : 24;
+        params.encodings[0].maxBitrate = mobileRoom ? 350000 : 700000;
+        params.encodings[0].maxFramerate = mobileRoom ? 15 : 24;
         params.degradationPreference = 'balanced';
       } else if (kind === 'audio') {
         params.encodings[0].maxBitrate = 64000;
@@ -555,7 +545,6 @@
   }
   function scheduleRemoteVideoHealthCheck(reason) {
     if (remoteVideoHealthTimer) clearTimeout(remoteVideoHealthTimer);
-    if (blackFrameCheckTimer) clearTimeout(blackFrameCheckTimer);
     if (isHost) return;
     remoteVideoHealthTimer = setTimeout(function () {
       var video = els.remoteVideo;
@@ -567,15 +556,6 @@
         setRemoteState('Receiving');
       }
     }, 2500);
-    blackFrameCheckTimer = setTimeout(function () {
-      var video = els.remoteVideo;
-      var hasTrack = !!(remoteScreenStream && remoteScreenStream.getVideoTracks && remoteScreenStream.getVideoTracks().length);
-      if (inRoom && hostId && hasTrack && video && video.videoWidth && sampleVideoLooksBlack(video) && socket) {
-        forceH264Mode = true;
-        socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: 'black-frame', preferCodec: 'H264', republishScreen: true });
-        setRemoteState('Re-syncing');
-      }
-    }, 4200);
   }
 
   function createPc(peerId, kind) {
@@ -642,14 +622,12 @@
       }
       if (isHostRelation(peer) && isHost && screenStream && screenStream.getVideoTracks().length) {
         peer.senders.mainVideo = pc.addTrack(screenStream.getVideoTracks()[0], screenStream);
-        maybeSetCodecPreferencesForSender(pc, peer.senders.mainVideo, getPreferredVideoCodec());
         tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       }
     }
 
     if (kind === 'cam' && shouldHaveCamPc(peer) && isHost && camStream && camStream.getVideoTracks().length) {
       peer.senders.camVideo = pc.addTrack(camStream.getVideoTracks()[0], camStream);
-      maybeSetCodecPreferencesForSender(pc, peer.senders.camVideo, getPreferredVideoCodec());
       tuneSenderParameters(peer.senders.camVideo, 'camVideo');
     }
 
@@ -741,7 +719,6 @@
         await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       } else if (screenTrack) {
         peer.senders.mainVideo = mainPc.addTrack(screenTrack, screenStream);
-        maybeSetCodecPreferencesForSender(mainPc, peer.senders.mainVideo, getPreferredVideoCodec());
         await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       }
       if (!screenTrack && peer.senders.mainVideo) { try { await peer.senders.mainVideo.replaceTrack(null); } catch (e) {} }
@@ -753,7 +730,6 @@
         await tuneSenderParameters(peer.senders.camVideo, 'camVideo');
       } else if (camTrack) {
         peer.senders.camVideo = camPc.addTrack(camTrack, camStream);
-        maybeSetCodecPreferencesForSender(camPc, peer.senders.camVideo, getPreferredVideoCodec());
         await tuneSenderParameters(peer.senders.camVideo, 'camVideo');
       }
       if (!camTrack && peer.senders.camVideo) { try { await peer.senders.camVideo.replaceTrack(null); } catch (e) {} }
@@ -777,30 +753,6 @@
         setRemoteState('Receiving');
       }
     }, 1800);
-  }
-
-  async function attemptRepublishScreenToPeer(peerId, reason) {
-    var peer = peers.get(peerId);
-    if (!peer || !isHost || !screenStream) return;
-    var screenTrack = screenStream.getVideoTracks()[0] || null;
-    if (!screenTrack) return;
-    var mainPc = createPc(peerId, 'main');
-    if (!mainPc) return;
-    if (peer.senders.mainVideo) {
-      try { await peer.senders.mainVideo.replaceTrack(null); } catch (e) {}
-    }
-    await new Promise(function (resolve) { setTimeout(resolve, 120); });
-    if (peer.senders.mainVideo) {
-      try { await peer.senders.mainVideo.replaceTrack(screenTrack); } catch (e) {}
-      maybeSetCodecPreferencesForSender(mainPc, peer.senders.mainVideo, getPreferredVideoCodec());
-      await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
-    } else {
-      peer.senders.mainVideo = mainPc.addTrack(screenTrack, screenStream);
-      maybeSetCodecPreferencesForSender(mainPc, peer.senders.mainVideo, getPreferredVideoCodec());
-      await tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
-    }
-    await negotiate(peerId, 'main');
-    setStatus('Re-publishing screen for ' + getPeerLabel(peerId) + (reason ? ' (' + reason + ')' : '') + '.');
   }
 
   function bindSocketEvents() {
@@ -902,11 +854,7 @@
       if (!isHost || !payload || !payload.targetId) return;
       if (payload.preferCodec === 'H264') forceH264Mode = true;
       await refreshPeerTracks(payload.targetId);
-      if (payload.republishScreen && isSharing) {
-        await attemptRepublishScreenToPeer(payload.targetId, payload.reason || 'republish');
-      } else {
-        await negotiate(payload.targetId, 'main');
-      }
+      await negotiate(payload.targetId, 'main');
       if ((payload.camActive || isCamOn) && peers.get(payload.targetId) && peers.get(payload.targetId).role === 'viewer') {
         await negotiate(payload.targetId, 'cam');
       }
@@ -1008,13 +956,9 @@
       return;
     }
     try {
-      var shareProfile = getAdaptiveShareProfile();
-      var constraints = { video: { frameRate: shareProfile.frameRate, width: { max: shareProfile.width }, height: { max: shareProfile.height } }, audio: true };
+      var constraints = { video: { frameRate: 24, width: { max: browserMeta.mobile ? 960 : 1280 }, height: { max: browserMeta.mobile ? 540 : 720 } }, audio: true };
       screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       var videoTrack = screenStream.getVideoTracks()[0] || null;
-      if (videoTrack) {
-        try { videoTrack.contentHint = 'detail'; } catch (e) {}
-      }
       if (!videoTrack) {
         setStatus('Screen share started without a video track.');
         return;
@@ -1032,7 +976,7 @@
       setRemoteState('Live');
       updateButtons();
       if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true, camActive: !!isCamOn });
-      setStatus((screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.') + ' Safe profile: ' + shareProfile.width + 'x' + shareProfile.height + ' @ ' + shareProfile.frameRate + 'fps.');
+      setStatus(screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.');
     } catch (e) {
       setStatus('Screen share was cancelled or blocked.');
     }
@@ -1114,8 +1058,6 @@
     isCamOn = false;
     viewerFullscreen = false;
     if (mediaSyncTimer) { clearTimeout(mediaSyncTimer); mediaSyncTimer = null; }
-    if (remoteVideoHealthTimer) { clearTimeout(remoteVideoHealthTimer); remoteVideoHealthTimer = null; }
-    if (blackFrameCheckTimer) { clearTimeout(blackFrameCheckTimer); blackFrameCheckTimer = null; }
     viewerSideHidden = false;
     chatMessages = [];
     renderChat();

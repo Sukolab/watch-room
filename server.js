@@ -197,7 +197,7 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('chat-message', message);
   });
 
-  socket.on('request-media-sync', ({ roomId, targetId, reason, preferCodec, republishScreen }) => {
+  socket.on('request-media-sync', ({ roomId, targetId, reason, preferCodec }) => {
     roomId = sanitizeRoomId(roomId);
     const room = getRoom(roomId);
     if (!room || !room.hostId) return;
@@ -208,8 +208,7 @@ io.on('connection', (socket) => {
         screenActive: !!room.screenActive,
         camActive: !!room.camActive,
         reason: reason || 'viewer-requested',
-        preferCodec: typeof preferCodec === 'string' ? preferCodec : 'default',
-        republishScreen: !!republishScreen
+        preferCodec: typeof preferCodec === 'string' ? preferCodec : 'default'
       });
     }
   });
