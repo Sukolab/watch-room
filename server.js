@@ -210,7 +210,7 @@ io.on('connection', (socket) => {
       isHost: role === 'host',
       locked: !!room.password,
       maxViewers: MAX_VIEWERS,
-      mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null },
+      mediaState: { screenActive: !!room.screenActive, hostId: room.hostId || null },
       participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
       chat: room.chat || [],
     });
@@ -228,11 +228,11 @@ io.on('connection', (socket) => {
     emitPeerCount(roomId);
     io.to(roomId).emit('room-state', {
       participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
-      mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+      mediaState: { screenActive: !!room.screenActive, hostId: room.hostId || null }
     });
-    if (room.screenActive || room.camActive) {
+    if (room.screenActive) {
       const host = room.members.find((m) => m.role === 'host');
-      if (host) io.to(host.id).emit('sync-media-request', { targetId: socket.id, screenActive: !!room.screenActive, camActive: !!room.camActive });
+      if (host) io.to(host.id).emit('sync-media-request', { targetId: socket.id, screenActive: !!room.screenActive });
     }
     emitRoomList();
   });
@@ -280,14 +280,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('media-state', ({ roomId, screenActive, camActive }) => {
+  socket.on('media-state', ({ roomId, screenActive }) => {
     roomId = sanitizeRoomId(roomId);
     const room = getRoom(roomId);
     if (!room) return;
     if (room.hostId === socket.id) {
       room.screenActive = !!screenActive;
-      room.camActive = !!camActive;
-    }
+          }
     io.to(roomId).emit('media-state', {
       from: socket.id,
       screenActive: !!screenActive,
@@ -295,7 +294,7 @@ io.on('connection', (socket) => {
     });
     io.to(roomId).emit('room-state', {
       participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
-      mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+      mediaState: { screenActive: !!room.screenActive, hostId: room.hostId || null }
     });
     emitRoomList();
   });
@@ -310,8 +309,7 @@ io.on('connection', (socket) => {
     if (room.hostId === socket.id) {
       room.hostId = null;
       room.screenActive = false;
-      room.camActive = false;
-    }
+          }
     socket.leave(roomId);
     socket.data.roomId = '';
     socket.data.displayName = '';
@@ -323,7 +321,7 @@ io.on('connection', (socket) => {
       room.members.forEach((m) => io.to(m.id).emit('peer-left', { socketId: socket.id, count: room.members.length }));
       io.to(roomId).emit('room-state', {
         participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
-        mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+        mediaState: { screenActive: !!room.screenActive, hostId: room.hostId || null }
       });
       emitPeerCount(roomId);
     }
@@ -340,8 +338,7 @@ io.on('connection', (socket) => {
     if (room.hostId === socket.id) {
       room.hostId = null;
       room.screenActive = false;
-      room.camActive = false;
-    }
+          }
 
     if (room.members.length === 0) {
       rooms.delete(roomId);
@@ -352,7 +349,7 @@ io.on('connection', (socket) => {
       }));
       io.to(roomId).emit('room-state', {
         participants: room.members.map((m) => ({ id: m.id, role: m.role, displayName: m.displayName, browser: m.browser || null })),
-        mediaState: { screenActive: !!room.screenActive, camActive: !!room.camActive, hostId: room.hostId || null }
+        mediaState: { screenActive: !!room.screenActive, hostId: room.hostId || null }
       });
       emitPeerCount(roomId);
     }

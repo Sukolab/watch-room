@@ -6,7 +6,6 @@
   var isHost = false;
   var isMicOn = false;
   var isSharing = false;
-  var isCamOn = false;
   var viewerFullscreen = false;
   var viewerSideHidden = false;
   var localAudioStream = null;
@@ -18,7 +17,6 @@
   var relayDrawTimer = null;
   var relayAnimationHandle = null;
   var usingScreenRelay = false;
-  var camStream = null;
   var remoteHostName = 'Host';
   var hostId = null;
   var participants = [];
@@ -40,7 +38,6 @@
   var mixedOutgoingTrack = null;
 
   var remoteScreenStream = new MediaStream();
-  var remoteCamStream = new MediaStream();
 
   var els = {
     nameInput: document.getElementById('nameInput'),
@@ -52,25 +49,17 @@
     joinBtn: document.getElementById('joinBtn'),
     shareBtn: document.getElementById('shareBtn'),
     micBtn: document.getElementById('micBtn'),
-    camBtn: document.getElementById('camBtn'),
     leaveBtn: document.getElementById('leaveBtn'),
     remoteVideo: document.getElementById('remoteVideo'),
-    camVideo: document.getElementById('camVideo'),
     remoteAudio: document.getElementById('remoteAudio'),
     status: document.getElementById('status'),
     remoteState: document.getElementById('remoteState'),
-    camState: document.getElementById('camState'),
     countValue: document.getElementById('countValue'),
     roleValue: document.getElementById('roleValue'),
     roomsContainer: document.getElementById('roomsContainer'),
     refreshRoomsBtn: document.getElementById('refreshRoomsBtn'),
     screenTitle: document.getElementById('screenTitle'),
-    camTitle: document.getElementById('camTitle'),
     viewerFullscreenBtn: document.getElementById('viewerFullscreenBtn'),
-    toggleSideBtn: document.getElementById('toggleSideBtn'),
-    camPlaceholder: document.getElementById('camPlaceholder'),
-    hostInitials: document.getElementById('hostInitials'),
-    hostDisplayName: document.getElementById('hostDisplayName'),
     peopleStrip: document.getElementById('peopleStrip'),
     chatMessages: document.getElementById('chatMessages'),
     chatInput: document.getElementById('chatInput'),
@@ -91,7 +80,6 @@
   function setCount(n) { if (els.countValue) els.countValue.textContent = String(n || 0); }
   function setRoleText(role) { if (els.roleValue) els.roleValue.textContent = role === 'host' ? 'Host' : 'Viewer'; }
   function setRemoteState(text) { if (els.remoteState) els.remoteState.textContent = text; }
-  function setCamState(text) { if (els.camState) els.camState.textContent = text; }
   function safePlay(media) { if (media && media.play) media.play().catch(function () {
     if (!audioResumeHintShown && media && (media.tagName === 'AUDIO' || media.tagName === 'VIDEO')) {
       audioResumeHintShown = true;
@@ -103,7 +91,6 @@
     try { if (mixedAudioContext && mixedAudioContext.state === 'suspended') mixedAudioContext.resume(); } catch (e) {}
     if (els.remoteAudio) { els.remoteAudio.muted = false; safePlay(els.remoteAudio); }
     if (els.remoteVideo) { safePlay(els.remoteVideo); }
-
     peers.forEach(function (peer) {
       if (peer && peer.audioEl) {
         try { peer.audioEl.muted = false; peer.audioEl.volume = 1; } catch (e) {}
@@ -133,7 +120,7 @@
     var pc = peer.pcs[kind];
     if (!pc || pc.signalingState === 'closed') return;
     try { if (pc.restartIce) pc.restartIce(); } catch (e) {}
-    if ((kind === 'main' && shouldInitiateMain(peerId)) || (kind === 'cam' && shouldInitiateCam(peerId))) {
+    if ((kind === 'main' && shouldInitiateMain(peerId))) {
       setTimeout(function () { negotiate(peerId, kind); }, 120);
     } else if (!isHost && kind === 'main' && socket && hostId) {
       socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'ice-restart', preferCodec: forceH264Mode ? 'H264' : 'default' });
@@ -177,10 +164,7 @@
   }
   function updateHostIdentity(name) {
     remoteHostName = String(name || remoteHostName || 'Host').trim() || 'Host';
-    if (els.hostDisplayName) els.hostDisplayName.textContent = remoteHostName;
-    if (els.hostInitials) els.hostInitials.textContent = nameToInitials(remoteHostName);
   }
-  function updateCamPlaceholder() { return; }
 
   function participantRoleText(role, me) {
     if (me) return role === 'host' ? 'You • host' : 'You';
@@ -270,9 +254,9 @@
   function syncViewerFullscreenUi() {
     var viewerMode = inRoom && !isHost;
     if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.hidden = !viewerMode;
-    if (els.toggleSideBtn) els.toggleSideBtn.hidden = true;
+    if (els.toggleSideBtn) els.toggleSideBtn.hidden = !viewerMode || !viewerFullscreen;
     if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.textContent = viewerFullscreen ? 'Exit fullscreen' : 'Fullscreen';
-
+    if (els.toggleSideBtn) els.toggleSideBtn.textContent = viewerSideHidden ? 'Show people' : 'Hide people';
     document.body.classList.toggle('viewer-fullscreen', viewerMode && viewerFullscreen);
     document.body.classList.toggle('side-hidden', viewerMode && viewerFullscreen && viewerSideHidden);
   }
@@ -292,7 +276,11 @@
     safePlay(els.remoteVideo);
 
   }
-  function toggleViewerSide() { return; }
+  function toggleViewerSide() {
+    if (isHost || !inRoom || !viewerFullscreen) return;
+    viewerSideHidden = !viewerSideHidden;
+    syncViewerFullscreenUi();
+  }
 
   function supportsDisplayMedia() {
     return !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
@@ -351,13 +339,8 @@
 
   function clearRemoteDisplay() {
     remoteScreenStream = new MediaStream();
-    remoteCamStream = new MediaStream();
     if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
-    if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
     setRemoteState('Waiting');
-    setCamState('Off');
-    isCamOn = false;
-    updateCamPlaceholder();
   }
 
   function setupRemoteMediaBindings() {
@@ -365,17 +348,12 @@
       els.remoteVideo.srcObject = remoteScreenStream;
       els.remoteVideo.muted = !!isHost;
     }
-    if (els.camVideo) {
-      els.camVideo.srcObject = isHost ? camStream : remoteCamStream;
-      els.camVideo.muted = true;
-    }
     if (els.remoteAudio) {
       els.remoteAudio.autoplay = true;
       els.remoteAudio.playsInline = true;
       els.remoteAudio.muted = false;
       els.remoteAudio.volume = 1;
     }
-    updateCamPlaceholder();
   }
 
   function getPeerLabel(peerId) {
@@ -387,8 +365,6 @@
     return !!peer && (peer.role === 'host' || isHost);
   }
 
-  function shouldHaveCamPc(peer) { return false; }
-
   function shouldInitiateMain(peerId) {
     var peer = peers.get(peerId);
     if (!peer || !socket || !socket.id) return false;
@@ -396,8 +372,6 @@
     if (peer.role === 'host') return false;
     return String(socket.id) < String(peerId);
   }
-
-  function shouldInitiateCam(peerId) { return false; }
 
   function ensurePeerRecord(peerId, meta) {
     var peer = peers.get(peerId);
@@ -408,12 +382,11 @@
         displayName: meta && meta.displayName ? meta.displayName : 'Guest',
         incomingAudio: new MediaStream(),
         incomingMain: new MediaStream(),
-        incomingCam: new MediaStream(),
-        pending: { main: [], cam: [] },
-        makingOffer: { main: false, cam: false },
-        ignoreOffer: { main: false, cam: false },
-        pcs: { main: null, cam: null },
-        senders: { mainAudio: null, mainVideo: null, camVideo: null },
+        pending: { main: [] },
+        makingOffer: { main: false },
+        ignoreOffer: { main: false },
+        pcs: { main: null },
+        senders: { mainAudio: null, mainVideo: null },
         audioEl: null
       };
       peers.set(peerId, peer);
@@ -431,7 +404,7 @@
   function destroyPeer(peerId) {
     var peer = peers.get(peerId);
     if (!peer) return;
-    ['main', 'cam'].forEach(function (kind) {
+    ['main'].forEach(function (kind) {
       var pc = peer.pcs[kind];
       if (pc) {
         try { pc.ontrack = null; pc.onicecandidate = null; pc.onnegotiationneeded = null; pc.onconnectionstatechange = null; pc.close(); } catch (e) {}
@@ -513,11 +486,6 @@
       els.shareBtn.disabled = !inRoom || !isHost;
       els.shareBtn.textContent = isSharing ? 'Stop screen share' : (supportsDisplayMedia() ? 'Start screen share' : 'Screen share unsupported');
     }
-    if (els.camBtn) {
-      els.camBtn.disabled = !inRoom || !isHost;
-      els.camBtn.textContent = isCamOn ? 'Stop camera' : 'Start camera';
-      els.camBtn.className = isCamOn ? 'warning' : 'secondary';
-    }
     if (els.micBtn) {
       els.micBtn.disabled = !inRoom;
       syncMicState();
@@ -527,14 +495,12 @@
     if (els.chatInput) els.chatInput.disabled = !inRoom;
     setRoleText(joinedRole);
     syncViewerFullscreenUi();
-    updateCamPlaceholder();
   }
 
   function sendSignal(to, data) {
     if (!socket || !to) return;
     socket.emit('signal', { to: to, data: data });
   }
-
 
   function isDesktopChromium(meta) {
     var engine = meta && meta.engine;
@@ -685,7 +651,7 @@
         params.encodings[0].maxBitrate = mobileRoom ? 900000 : 1800000;
         params.encodings[0].maxFramerate = mobileRoom ? 20 : 30;
         params.degradationPreference = 'maintain-resolution';
-      } else if (kind === 'camVideo') {
+
         params.encodings[0].maxBitrate = mobileRoom ? 350000 : 700000;
         params.encodings[0].maxFramerate = mobileRoom ? 15 : 24;
         params.degradationPreference = 'balanced';
@@ -722,7 +688,7 @@
     };
 
     pc.onnegotiationneeded = function () {
-      if ((kind === 'main' && shouldInitiateMain(peerId)) || (kind === 'cam' && shouldInitiateCam(peerId))) {
+      if ((kind === 'main' && shouldInitiateMain(peerId))) {
         negotiate(peerId, kind);
       }
     };
@@ -761,15 +727,6 @@
             scheduleRemoteVideoHealthCheck('ontrack');
           });
         }
-      } else if (kind === 'cam' && peer.role === 'host' && !isHost) {
-        event.streams[0].getVideoTracks().forEach(function (track) {
-          remoteCamStream = new MediaStream([track]);
-          if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
-          isCamOn = true;
-          setCamState('Live');
-          updateCamPlaceholder();
-      
-        });
       }
     };
 
@@ -786,11 +743,6 @@
         peer.senders.mainVideo = pc.addTrack(screenStream.getVideoTracks()[0], screenStream);
         tuneSenderParameters(peer.senders.mainVideo, 'screenVideo');
       }
-    }
-
-    if (kind === 'cam' && shouldHaveCamPc(peer) && isHost && camStream && camStream.getVideoTracks().length) {
-      peer.senders.camVideo = pc.addTrack(camStream.getVideoTracks()[0], camStream);
-      tuneSenderParameters(peer.senders.camVideo, 'camVideo');
     }
 
     return pc;
@@ -886,16 +838,6 @@
       }
       if (!screenTrack && peer.senders.mainVideo) { try { await peer.senders.mainVideo.replaceTrack(null); } catch (e) {} }
 
-      var camPc = createPc(peerId, 'cam');
-      var camTrack = camStream && camStream.getVideoTracks()[0] ? camStream.getVideoTracks()[0] : null;
-      if (peer.senders.camVideo) {
-        try { await peer.senders.camVideo.replaceTrack(camTrack || null); } catch (e) {}
-        await tuneSenderParameters(peer.senders.camVideo, 'camVideo');
-      } else if (camTrack) {
-        peer.senders.camVideo = camPc.addTrack(camTrack, camStream);
-        await tuneSenderParameters(peer.senders.camVideo, 'camVideo');
-      }
-      if (!camTrack && peer.senders.camVideo) { try { await peer.senders.camVideo.replaceTrack(null); } catch (e) {} }
     }
   }
 
@@ -949,14 +891,10 @@
         hostId = socket.id;
         updateHostIdentity(String(els.nameInput && els.nameInput.value || 'Host'));
         if (els.screenTitle) els.screenTitle.textContent = 'Your shared screen';
-        if (els.camTitle) els.camTitle.textContent = 'Your camera';
         setRemoteState(payload.mediaState && payload.mediaState.screenActive ? 'Live' : 'Not sharing');
-        setCamState(payload.mediaState && payload.mediaState.camActive ? 'Live' : 'Off');
       } else {
         if (els.screenTitle) els.screenTitle.textContent = 'Shared screen';
-        if (els.camTitle) els.camTitle.textContent = 'Host camera';
         setRemoteState(payload.mediaState && payload.mediaState.screenActive ? 'Receiving' : 'Waiting');
-        setCamState(payload.mediaState && payload.mediaState.camActive ? 'Receiving' : 'Off');
       }
       (payload.peers || []).forEach(function (peerMeta) {
         ensurePeerRecord(peerMeta.id, { role: peerMeta.role, displayName: peerMeta.displayName, browser: peerMeta.browser || null });
@@ -968,7 +906,6 @@
         var peerMeta = payload.peers[i];
         await refreshPeerTracks(peerMeta.id);
         if (shouldInitiateMain(peerMeta.id)) await negotiate(peerMeta.id, 'main');
-        if (shouldInitiateCam(peerMeta.id)) await negotiate(peerMeta.id, 'cam');
       }
       if (!isHost && payload.mediaState && payload.mediaState.screenActive && payload.mediaState.hostId) {
         scheduleMediaSyncRequest('join-room');
@@ -984,7 +921,6 @@
       }
       await refreshPeerTracks(payload.socketId);
       if (shouldInitiateMain(payload.socketId)) await negotiate(payload.socketId, 'main');
-      if (shouldInitiateCam(payload.socketId)) await negotiate(payload.socketId, 'cam');
       setStatus((payload.displayName || 'Someone') + ' joined the room.');
       if (!isHost && payload.role === 'host') scheduleMediaSyncRequest('peer-joined');
     });
@@ -1000,18 +936,11 @@
       if (payload && payload.participants) setParticipants((payload.participants || []).filter(function (p) { return !socket || p.id !== socket.id; }));
       if (payload && payload.mediaState && !isHost) {
         setRemoteState(payload.mediaState.screenActive ? 'Receiving' : 'Waiting');
-        setCamState(payload.mediaState.camActive ? 'Receiving' : 'Off');
         if (payload.mediaState.hostId) hostId = payload.mediaState.hostId;
         if (payload.mediaState.screenActive) { scheduleMediaSyncRequest('room-state'); scheduleRemoteVideoHealthCheck('room-state'); }
         if (!payload.mediaState.screenActive) {
           remoteScreenStream = new MediaStream();
           if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
-        }
-        if (!payload.mediaState.camActive) {
-          remoteCamStream = new MediaStream();
-          if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
-          isCamOn = false;
-          updateCamPlaceholder();
         }
       }
     });
@@ -1020,9 +949,6 @@
       if (payload.preferCodec === 'H264') forceH264Mode = true;
       await refreshPeerTracks(payload.targetId);
       await negotiate(payload.targetId, 'main');
-      if ((payload.camActive || isCamOn) && peers.get(payload.targetId) && peers.get(payload.targetId).role === 'viewer') {
-        await negotiate(payload.targetId, 'cam');
-      }
     });
     socket.on('chat-message', function (message) { pushChatMessage(message); });
     socket.on('media-state', function (payload) {
@@ -1038,13 +964,6 @@
           if (els.remoteVideo) els.remoteVideo.srcObject = remoteScreenStream;
           setRemoteState('Waiting');
         }
-        isCamOn = !!payload.camActive;
-        setCamState(isCamOn ? 'Receiving' : 'Off');
-        if (!isCamOn) {
-          remoteCamStream = new MediaStream();
-          if (els.camVideo) els.camVideo.srcObject = remoteCamStream;
-        }
-        updateCamPlaceholder();
       }
     });
     socket.on('disconnect', function () {
@@ -1148,7 +1067,7 @@
       peers.forEach(function (peer, peerId) { if (peer.role === 'viewer') negotiate(peerId, 'main'); });
       setRemoteState('Live');
       updateButtons();
-      if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true, camActive: false });
+      if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true });
       updateNetworkHint();
       setStatus((screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.') + (usingScreenRelay ? ' Compatibility relay mode is on for this host.' : ''));
     } catch (e) {
@@ -1172,54 +1091,8 @@
     }
     setRemoteState(isHost ? 'Not sharing' : 'Waiting');
     updateButtons();
-    if (socket) socket.emit('media-state', { roomId: roomId, screenActive: false, camActive: false });
+    if (socket) socket.emit('media-state', { roomId: roomId, screenActive: false });
   }
-
-  async function startStopCam() {
-    if (!inRoom || !isHost) return;
-    if (isCamOn) {
-      stopCamera();
-      return;
-    }
-    try {
-      camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      isCamOn = true;
-      if (els.camVideo) {
-        els.camVideo.srcObject = camStream;
-        els.camVideo.muted = true;
-    
-      }
-      var track = camStream.getVideoTracks()[0];
-      if (track) track.onended = stopCamera;
-      refreshAllPeerTracks();
-      peers.forEach(function (peer, peerId) { if (peer.role === 'viewer') negotiate(peerId, 'cam'); });
-      setCamState('Live');
-      updateCamPlaceholder();
-      updateButtons();
-      if (socket) socket.emit('media-state', { roomId: roomId, screenActive: !!isSharing, camActive: true });
-      setStatus('Camera started.');
-    } catch (e) {
-      setStatus('Unable to access camera.');
-    }
-  }
-
-  function stopCamera() {
-    if (camStream) {
-      camStream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
-    }
-    camStream = null;
-    isCamOn = false;
-    refreshAllPeerTracks();
-    if (els.camVideo) {
-      els.camVideo.srcObject = isHost ? new MediaStream() : remoteCamStream;
-      if (!isHost) safePlay(els.camVideo);
-    }
-    setCamState('Off');
-    updateCamPlaceholder();
-    updateButtons();
-    if (socket) socket.emit('media-state', { roomId: roomId, screenActive: !!isSharing, camActive: false });
-  }
-
 
   function cleanupRoomState(resetRoomId) {
     if (typeof resetRoomId === 'undefined') resetRoomId = true;
@@ -1231,7 +1104,6 @@
     isHost = false;
     hostId = null;
     isSharing = false;
-    isCamOn = false;
     viewerFullscreen = false;
     if (mediaSyncTimer) { clearTimeout(mediaSyncTimer); mediaSyncTimer = null; }
     viewerSideHidden = false;
@@ -1240,7 +1112,6 @@
     clearRemoteDisplay();
     stopScreenShare();
     cleanupScreenRelay();
-    stopCamera();
     stopLocalAudio();
     updateButtons();
     updateNetworkHint();
@@ -1297,7 +1168,6 @@
   if (els.resumeAudioBtn) els.resumeAudioBtn.onclick = resumeAudioPlayback;
   if (els.chatInput) els.chatInput.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
   if (els.viewerFullscreenBtn) els.viewerFullscreenBtn.onclick = toggleViewerFullscreen;
-  if (els.toggleSideBtn) els.toggleSideBtn.onclick = toggleViewerSide;
 
   ['click','touchstart'].forEach(function (evt) { document.addEventListener(evt, function () { if (inRoom) resumeAudioPlayback(); }, { passive: true }); });
 
