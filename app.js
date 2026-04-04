@@ -131,7 +131,7 @@
     if (state !== 'failed' && state !== 'disconnected') return;
     var label = peer ? (peer.displayName || peer.role || 'peer') : 'peer';
     if (!hasTurn) {
-      setStatus('Connection dipped with ' + label + '. Trying a direct reconnect.');
+      setStatus('Connection dipped with ' + label + '. Trying a direct reconnect in compatibility mode.');
       updateNetworkHint();
     } else if (kind === 'main' && peer && peer.role === 'host' && !isHost) {
       setStatus('Reconnecting media from ' + label + '.');
@@ -511,6 +511,10 @@
     return !!(screenStream && isDesktopChromium(browserMeta));
   }
 
+  function shouldForceCompatibilityShare() {
+    return !!(isDesktopChromium(browserMeta) || browserMeta.mobile);
+  }
+
   function cleanupScreenRelay() {
     if (relayDrawTimer) { clearInterval(relayDrawTimer); relayDrawTimer = null; }
     if (relayAnimationHandle && window.cancelAnimationFrame) {
@@ -648,15 +652,12 @@
       params.encodings = params.encodings && params.encodings.length ? params.encodings : [{}];
       var mobileRoom = browserMeta.mobile || participants.some(function (p) { return p.browser && p.browser.mobile; });
       if (kind === 'screenVideo') {
-        params.encodings[0].maxBitrate = mobileRoom ? 900000 : 1800000;
-        params.encodings[0].maxFramerate = mobileRoom ? 20 : 30;
-        params.degradationPreference = 'maintain-resolution';
-
         params.encodings[0].maxBitrate = mobileRoom ? 350000 : 700000;
-        params.encodings[0].maxFramerate = mobileRoom ? 15 : 24;
+        params.encodings[0].maxFramerate = mobileRoom ? 12 : 15;
         params.degradationPreference = 'balanced';
+        params.encodings[0].scaleResolutionDownBy = 1.0;
       } else if (kind === 'audio') {
-        params.encodings[0].maxBitrate = 64000;
+        params.encodings[0].maxBitrate = 32000;
       }
       await sender.setParameters(params);
     } catch (e) {}
@@ -673,7 +674,7 @@
         socket.emit('request-media-sync', { roomId: roomId, targetId: socket.id, reason: reason || 'video-health', preferCodec: 'H264' });
         setRemoteState('Receiving');
       }
-    }, 2500);
+    }, 3500);
   }
 
   function createPc(peerId, kind) {
@@ -1042,7 +1043,16 @@
       return;
     }
     try {
-      var constraints = { video: { frameRate: 20, width: { max: browserMeta.mobile ? 960 : 1280 }, height: { max: browserMeta.mobile ? 540 : 720 } }, audio: true };
+      var compatibilityMode = shouldForceCompatibilityShare();
+      if (compatibilityMode) forceH264Mode = true;
+      var constraints = {
+        video: {
+          frameRate: compatibilityMode ? 15 : 20,
+          width: { max: compatibilityMode ? 854 : (browserMeta.mobile ? 960 : 1280) },
+          height: { max: compatibilityMode ? 480 : (browserMeta.mobile ? 540 : 720) }
+        },
+        audio: false
+      };
       screenStream = await navigator.mediaDevices.getDisplayMedia(constraints);
       var videoTrack = screenStream.getVideoTracks()[0] || null;
       if (!videoTrack) {
@@ -1050,6 +1060,7 @@
         return;
       }
       isSharing = true;
+      try { if (videoTrack.contentHint) videoTrack.contentHint = 'detail'; } catch (e) {}
       if (els.remoteVideo) {
         els.remoteVideo.srcObject = screenStream;
         els.remoteVideo.muted = true;
@@ -1068,7 +1079,7 @@
       updateButtons();
       if (socket) socket.emit('media-state', { roomId: roomId, screenActive: true });
       updateNetworkHint();
-      setStatus((screenStream.getAudioTracks().length ? 'Screen share started with screen audio.' : 'Screen share started. Browser did not provide screen audio.') + (usingScreenRelay ? ' Compatibility relay mode is on for this host.' : ''));
+      setStatus('Screen share started in compatibility mode (video only). Mic is sent separately for better browser compatibility.' + (usingScreenRelay ? ' Compatibility relay mode is on for this host.' : ''));
     } catch (e) {
       setStatus('Screen share was cancelled or blocked.');
     }
